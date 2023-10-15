@@ -6,33 +6,33 @@ import (
 	"time"
 )
 
+// 确保进入这个方法之前，获取了mu.lock
 func (rf *Raft) toFollower(term int) {
-	rf.mu.RLock()
 	prevTerm := rf.currentTerm
 	prevRole := rf.role
-	rf.PrintLog(fmt.Sprintf("Role ---> Follower, [PrevTerm %d] [CurTerm %d] [PrevRole %d]", rf.currentTerm, term, prevRole), "green")
-	rf.mu.RUnlock()
+	prevRoleStr := getRoleStr(prevRole)
+	rf.PrintLog(fmt.Sprintf("Role [%s] ---> [Follower], [PrevTerm %d] [CurTerm %d] [PrevRole %s]", prevRoleStr, rf.currentTerm, term, prevRoleStr), "green")
 
-	rf.mu.Lock()
 	rf.role = 0
 	if prevTerm < term {
 		// rf.voteCnt = 0  voteCnt在转为candidate的时候会自动设置为1
 		rf.votedFor = -1 // 每个server在每个term只能投1次
 		rf.currentTerm = term
 	}
-	rf.mu.Unlock()
 }
 
 func (rf *Raft) toCandidate() {
-	rf.PrintLog("Role ---> Candidate", "green")
 
 	// 1.增加Term  2.vote给自己  3.重置计时器
-	rf.mu.Unlock()
+	rf.mu.Lock()
+	roleStr := getRoleStr(rf.role)
+	rf.PrintLog("Role ["+roleStr+"]---> Candidate", "green")
+	rf.role = 1
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.voteCnt = 1
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
-	rf.mu.Lock()
+	rf.mu.Unlock()
 
 	// 4.发送投票请求
 	// 发送请求之前获取当前状态的副本
@@ -43,7 +43,7 @@ func (rf *Raft) toCandidate() {
 	if lastLogIndex != -1 {
 		lastLogTerm = rf.log[lastLogIndex].Term
 	}
-	rf.mu.Unlock()
+	rf.mu.RUnlock()
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
 		go func() {
@@ -55,20 +55,21 @@ func (rf *Raft) toCandidate() {
 			requestVoteReply := RequestVoteReply{}
 			ok := rf.sendRequestVote(curI, &requestVoteArgs, &requestVoteReply)
 			if !ok {
-				rf.PrintLog(fmt.Sprintf("RV RPC -----> [Server %d] Failed", curI), "yellow")
+				// rf.PrintLog(fmt.Sprintf("RV RPC -----> [Server %d] Failed", curI), "yellow")
 			}
+			// rf.PrintLog("Call RV RPC Handler--"+strconv.Itoa(curI), "red")
 			rf.RequestVoteResponseHandler(&requestVoteArgs, &requestVoteReply)
 		}()
 	}
 }
 
 func (rf *Raft) toLeader() {
-	rf.mu.RLock()
-	rf.PrintLog(fmt.Sprintf("Role ---> Leader, [Term: %d]", rf.currentTerm), "green")
-	rf.mu.RUnlock()
-	rf.PrintState("Leader PrintState")
 
 	rf.mu.Lock()
+	roleStr := getRoleStr(rf.role)
+	rf.PrintLog(fmt.Sprintf("Role ["+roleStr+"]---> [Leader], [Term: %d]", rf.currentTerm), "green")
+	rf.PrintState("Leader PrintState")
+	rf.role = 2
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := 0; i < len(rf.peers); i++ {
@@ -88,7 +89,7 @@ func (rf *Raft) leaderTicker() {
 	for rf.killed() == false {
 		rf.mu.RLock()
 		role := rf.role
-		rf.mu.Unlock()
+		rf.mu.RUnlock()
 
 		if role != 2 {
 			rf.PrintLog("No longer leader", "green")
@@ -109,7 +110,7 @@ func (rf *Raft) ticker() {
 		role := rf.role
 		lastHBTime := rf.lastHeartbeatTime
 		electionTimeout := rf.electionTimeout
-		rf.mu.Unlock()
+		rf.mu.RUnlock()
 
 		// leader不需要定期检查心跳是否超时
 		if role == 2 {
