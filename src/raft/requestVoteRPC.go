@@ -22,13 +22,11 @@ func (rf *Raft) RequestVoteRequestHandler(args *RequestVoteArgs, reply *RequestV
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	// 0.1 自己term小，转为follower(并重置timeout)，然后继续研判candidate的投票请求
+	// 0.1 自己term小，转为follower(并重置timeout[删除])，然后继续研判candidate的投票请求
 	if rf.currentTerm < args.Term {
 		rf.PrintLog(fmt.Sprintf("cur server has lower term. Server term: [Term %d], Candidate term: [Term %d]", rf.currentTerm, args.Term), "default")
-
 		rf.toFollower(args.Term)
-		rf.currentTerm = args.Term
-		rf.lastHeartbeatTime = time.Now().UnixMilli()
+		// rf.lastHeartbeatTime = time.Now().UnixMilli() 这里重置时钟是不必要的，votedFor重置为-1，接下来grantVote的时候自然会重置时钟
 	}
 
 	// 0.2 自己是leader，冷处理
@@ -85,7 +83,7 @@ func (rf *Raft) RequestVoteResponseHandler(args *RequestVoteArgs, reply *Request
 	}
 
 	// 2.忽略过期resp
-	if rf.currentTerm > reply.Term {
+	if rf.currentTerm > reply.Term || rf.currentTerm > args.Term {
 		rf.mu.Unlock()
 		return
 	}
@@ -100,7 +98,7 @@ func (rf *Raft) RequestVoteResponseHandler(args *RequestVoteArgs, reply *Request
 	// 4.批准投票
 	if reply.VoteGranted {
 		rf.voteCnt += 1
-		rf.PrintLog(fmt.Sprintf("receive granted RV RPC from [Server ?], [VoteCnt %d]", rf.voteCnt), "default")
+		rf.PrintLog(fmt.Sprintf("RV RPC GRANTED from [Server ?], [VoteCnt %d]", rf.voteCnt), "default")
 		if rf.voteCnt >= (len(rf.peers)/2 + 1) {
 			rf.mu.Unlock()
 			rf.toLeader()

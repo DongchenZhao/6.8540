@@ -26,7 +26,7 @@ func (rf *Raft) toCandidate() {
 	// 1.增加Term  2.vote给自己  3.重置计时器
 	rf.mu.Lock()
 	roleStr := getRoleStr(rf.role)
-	rf.PrintLog("Role ["+roleStr+"]---> Candidate", "green")
+	rf.PrintLog("Role ["+roleStr+"]---> [Candidate]", "green")
 	rf.role = 1
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
@@ -66,8 +66,9 @@ func (rf *Raft) toCandidate() {
 func (rf *Raft) toLeader() {
 
 	rf.mu.Lock()
+
 	roleStr := getRoleStr(rf.role)
-	rf.PrintLog(fmt.Sprintf("Role ["+roleStr+"]---> [Leader], [Term: %d]", rf.currentTerm), "green")
+	rf.PrintLog(fmt.Sprintf("Role ["+roleStr+"] ---> [Leader], [Term: %d]", rf.currentTerm), "green")
 	rf.PrintState("Leader PrintState")
 	rf.role = 2
 	rf.nextIndex = make([]int, len(rf.peers))

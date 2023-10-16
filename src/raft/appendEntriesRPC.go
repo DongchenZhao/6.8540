@@ -27,30 +27,43 @@ func (rf *Raft) AppendEntriesRequestHandler(args *AppendEntriesArgs, reply *Appe
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if args.Term < rf.currentTerm { // 1. 自己term比leader大，拒绝leader
+	// 1. 自己term比leader大，拒绝leader
+	if args.Term < rf.currentTerm {
 		reply.Term = rf.currentTerm
 		reply.Success = false
 		return
-	} else {
-		if args.Term > rf.currentTerm { // 2. 自己term比leader小，转follower以刷新term
-			rf.toFollower(args.Term)
-		}
-		// 3. 自己term和leader相等，比较日志
+	} else { // 2. 自己term更小或相等，都转为和leader相同term的follower，接受心跳，重置超时
+		rf.toFollower(args.Term)
 		rf.lastHeartbeatTime = time.Now().UnixMilli()
 		reply.Term = args.Term
 		reply.Success = true
-		// TODO compare and handle log
+		reply.ServerId = rf.me
+		// compare and handle log
+		rf.followerHandleLog(args, reply)
 		return
 	}
+
 }
 
 func (rf *Raft) AppendEntriesResponseHandler(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
-	if reply.Term > rf.currentTerm && (!reply.Success) {
-		rf.toFollower(reply.Term)
+	// 自己term更高，忽略过期AE RPC Resp
+	if rf.currentTerm > reply.Term || rf.currentTerm > args.Term {
+		return
 	}
-	// TODO 处理日志agreement
+
+	// 对方term更高，转为Follower
+	if reply.Term > rf.currentTerm {
+		if reply.Success {
+			rf.PrintLog("ERROR", "red")
+		}
+		rf.toFollower(reply.Term)
+		return
+	}
+
+	// leader 处理日志agreement
+	rf.leaderHandleLog(args, reply)
 }
 
 func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
@@ -61,12 +74,14 @@ func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *Ap
 func (rf *Raft) leaderSendAppendEntriesRPC() {
 	rf.mu.RLock()
 	currentTerm := rf.currentTerm
+	leaderCommit := rf.commitIndex
 	log := make([]LogEntry, len(rf.log))
 	for i := 0; i < len(rf.log); i++ {
 		log[i].Term = rf.log[i].Term
 		log[i].Command = rf.log[i].Command
 	}
-	leaderCommit := rf.commitIndex
+	nextIndex := make([]int, len(rf.nextIndex))
+	copy(nextIndex, rf.nextIndex)
 	rf.mu.RUnlock()
 
 	for i := 0; i < len(rf.peers); i++ {
@@ -75,10 +90,18 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 			if curI == rf.me {
 				return
 			}
-			//TODO 获取要发给每个Server的prevLogTerm, prevLogIndex和Entries[]
-			prevLogIndex := -1
-			prevLogTerm := -1
-			entries := make([]LogEntry, 0)
+
+			// 获取要发给每个Server的prevLogTerm, prevLogIndex和Entries[]
+			prevLogIndex := nextIndex[curI] - 1
+			prevLogTerm := 0
+			if prevLogIndex != -1 {
+				prevLogTerm = log[prevLogIndex].Term
+			}
+			entries := make([]LogEntry, len(log)-(prevLogIndex+1))
+			for j := 0; j < len(log)-(prevLogIndex+1); j++ {
+				entries[j].Term = rf.log[j+prevLogIndex+1].Term
+				entries[j].Command = rf.log[j+prevLogIndex+1].Command
+			}
 
 			appendEntriesArgs := AppendEntriesArgs{currentTerm, rf.me, prevLogIndex, prevLogTerm, entries, leaderCommit}
 			appendEntriesReply := AppendEntriesReply{}

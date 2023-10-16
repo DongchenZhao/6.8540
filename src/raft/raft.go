@@ -18,6 +18,7 @@ package raft
 //
 
 import (
+	"fmt"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -161,11 +162,22 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // term. the third return value is true if this server believes it is
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
-	index := -1
-	term := -1
-	isLeader := true
+	rf.mu.Lock()
+	defer rf.mu.Unlock()
 
-	// Your code here (2B).
+	index := -1
+	term := 0
+	isLeader := rf.role == 2
+	if isLeader {
+		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command})
+		term = rf.currentTerm
+		index = len(rf.log) - 1
+		// TODO
+		//rf.matchIndex[rf.me] =
+		//	rf.lastApplied
+		rf.PrintLog(fmt.Sprintf("Leader accepts a new log, [Term %d] [Index %d]", term, index), "skyblue")
+		rf.PrintRfLog()
+	}
 
 	return index, term, isLeader
 }

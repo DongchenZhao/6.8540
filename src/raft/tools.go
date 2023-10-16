@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"log"
 	"strconv"
 )
@@ -21,6 +22,13 @@ func (rf *Raft) PrintState(content string) {
 
 }
 
+// locked 只能在有锁的情况下调用
+// 打印当前server的全部日志
+func (rf *Raft) PrintRfLog() {
+	rf.PrintLog("[LOG]"+getLogStr(rf.log), "red")
+}
+
+// 返回日志片段的字符串
 func getLogStr(entries []LogEntry) string {
 	logStr := "["
 	for i := 0; i < len(entries); i++ {
@@ -28,6 +36,12 @@ func getLogStr(entries []LogEntry) string {
 	}
 	logStr += "]"
 	return logStr
+}
+
+func getAppendEntriesRPCStr(args *AppendEntriesArgs, reply *AppendEntriesReply) string {
+	str1 := fmt.Sprintf("[Leader term %d], [Leader Id %d], [prevLogIndex %d], [prevLogTerm %d], [LeaderCommit %d], [Entries %s]", args.Term, args.LeaderId, args.PrevLogIndex, args.PrevLogTerm, args.LeaderCommit, getLogStr(args.Entries))
+	str2 := fmt.Sprintf("[Follower term %d], [Follower Id %d], [Success %t], [XTerm %d], [XIndex %d], [XLen %d]", reply.Term, reply.ServerId, reply.Success, reply.XTerm, reply.XIndex, reply.XLen)
+	return str1 + " || " + str2
 }
 
 func getRoleStr(role int) string {
