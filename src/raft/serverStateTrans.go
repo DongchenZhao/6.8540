@@ -30,24 +30,22 @@ func (rf *Raft) toCandidate() {
 	// 1.增加Term  2.vote给自己  3.重置计时器
 	rf.mu.Lock()
 	roleStr := getRoleStr(rf.role)
-	rf.PrintLog("Role ["+roleStr+"]---> [Candidate]", "green")
 	rf.role = 1
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.voteCnt = 1
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
-	rf.mu.Unlock()
+	rf.PrintLog(fmt.Sprintf("Role [%s]---> [Candidate], update term from [Term %d] to [Term %d]", roleStr, rf.currentTerm-1, rf.currentTerm), "green")
 
 	// 4.发送投票请求
 	// 发送请求之前获取当前状态的副本
-	rf.mu.RLock()
 	currentTerm := rf.currentTerm
 	lastLogIndex := len(rf.log) - 1
 	lastLogTerm := 0 // 日志为空，最后一个term为0
 	if lastLogIndex != -1 {
 		lastLogTerm = rf.log[lastLogIndex].Term
 	}
-	rf.mu.RUnlock()
+	rf.mu.Unlock()
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
 		go func() {

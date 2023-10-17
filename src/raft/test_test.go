@@ -483,7 +483,7 @@ func TestRejoin2B(t *testing.T) {
 
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
-	printSplit(fmt.Sprintf("[New Leader %d] network failure, [Leader %d] connects again", leader2, leader1))
+	printSplit(fmt.Sprintf("[New Leader %d] network failure, [Old Leader %d] connects again", leader2, leader1))
 	cfg.disconnect(leader2)
 
 	// old leader connected again
@@ -501,6 +501,7 @@ func TestRejoin2B(t *testing.T) {
 
 func TestBackup2B(t *testing.T) {
 	servers := 5
+	logCnt := 50
 	cfg := make_config(t, servers, false, false)
 	defer cfg.cleanup()
 
@@ -514,38 +515,56 @@ func TestBackup2B(t *testing.T) {
 	cfg.disconnect((leader1 + 3) % servers)
 	cfg.disconnect((leader1 + 4) % servers)
 
+	follower1 := (leader1 + 1) % servers
+	follower2 := (leader1 + 2) % servers
+	follower3 := (leader1 + 3) % servers
+	follower4 := (leader1 + 4) % servers
+	printSplit(fmt.Sprintf("{L1-%d, %d}-{%d}-{%d}-{%d}", leader1, follower1, follower2, follower3, follower4))
 	// submit lots of commands that won't commit
-	for i := 0; i < 50; i++ {
+	printSplit(fmt.Sprintf("LOG1-send logs won't commit to [L1-%d]", leader1))
+	for i := 0; i < logCnt; i++ {
 		cfg.rafts[leader1].Start(rand.Int())
 	}
+	printSplit("LOG1-ENDS")
 
 	time.Sleep(RaftElectionTimeout / 2)
 
 	cfg.disconnect((leader1 + 0) % servers)
 	cfg.disconnect((leader1 + 1) % servers)
 
+	printSplit(fmt.Sprintf("{L1-%d, %d}-{%d}-{%d}-{%d}", leader1, follower1, follower2, follower3, follower4))
+	printSplit(fmt.Sprintf("{L1-%d}-{%d}-{%d, %d, %d}", leader1, follower1, follower2, follower3, follower4))
+
 	// allow other partition to recover
 	cfg.connect((leader1 + 2) % servers)
 	cfg.connect((leader1 + 3) % servers)
 	cfg.connect((leader1 + 4) % servers)
 
+	printSplit(fmt.Sprintf("LOG2-send logs WILL COMMIT to [l2-?]"))
 	// lots of successful commands to new group.
-	for i := 0; i < 50; i++ {
+	for i := 0; i < logCnt; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
+	printSplit("LOG2-ENDS")
 
 	// now another partitioned leader and one follower
 	leader2 := cfg.checkOneLeader()
+	leader2Follower := (leader2 + 1) % servers
 	other := (leader1 + 2) % servers
 	if leader2 == other {
 		other = (leader2 + 1) % servers
 	}
 	cfg.disconnect(other)
 
+	printSplit(fmt.Sprintf("{L1-%d}-{%d}-{%d, %d, %d}", leader1, follower1, follower2, follower3, follower4))
+	printSplit(fmt.Sprintf("{L1-%d}-{%d}-{L2-%d, %d}-{O-%d}", leader1, follower1, leader2, leader2Follower, other))
+
 	// lots more commands that won't commit
-	for i := 0; i < 50; i++ {
+	printSplit(fmt.Sprintf("LOG3-send logs won't commit to [l2 %d]", leader2))
+	for i := 0; i < logCnt; i++ {
 		cfg.rafts[leader2].Start(rand.Int())
 	}
+	printSplit("LOG3-ENDS")
 
 	time.Sleep(RaftElectionTimeout / 2)
 
@@ -557,11 +576,17 @@ func TestBackup2B(t *testing.T) {
 	cfg.connect((leader1 + 1) % servers)
 	cfg.connect(other)
 
+	printSplit(fmt.Sprintf("{L1-%d}-{%d}-{L2-%d, %d}-{O %d}", leader1, follower1, leader2, leader2Follower, other))
+	printSplit(fmt.Sprintf("{L1-%d, %d, O %d}-{L2-%d}-{%d}", leader1, follower1, other, leader2, leader2Follower))
+
+	printSplit(fmt.Sprintf("LOG4-send logs WILL COMMIT"))
 	// lots of successful commands to new group.
-	for i := 0; i < 50; i++ {
+	for i := 0; i < logCnt; i++ {
 		cfg.one(rand.Int(), 3, true)
 	}
-
+	printSplit("LOG4-ENDS")
+	printSplit(fmt.Sprintf("{L1-%d, %d, O %d}-{L2-%d}-{%d}", leader1, follower1, other, leader2, leader2Follower))
+	printSplit("CONNECT ALL")
 	// now everyone
 	for i := 0; i < servers; i++ {
 		cfg.connect(i)

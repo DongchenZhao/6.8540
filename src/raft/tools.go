@@ -62,6 +62,7 @@ func (rf *Raft) PrintRfLog() {
 
 // 返回日志片段的字符串
 func getLogStr(entries []LogEntry) string {
+	return "[---]"
 	logStr := "["
 	for i := 0; i < len(entries); i++ {
 		logStr += strconv.Itoa(entries[i].Term)

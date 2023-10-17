@@ -179,6 +179,7 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		//	rf.lastApplied
 		rf.PrintLog(fmt.Sprintf("Leader accepts a new log, [Term %d] [Index %d]", term, index), "skyblue")
 		rf.PrintRfLog()
+		rf.PrintServerState("red")
 	}
 
 	return index + 1, term, isLeader

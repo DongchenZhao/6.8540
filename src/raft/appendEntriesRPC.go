@@ -38,9 +38,15 @@ func (rf *Raft) AppendEntriesRequestHandler(args *AppendEntriesArgs, reply *Appe
 		reply.Term = args.Term
 		reply.Success = true
 		reply.ServerId = rf.me
+
 		// follower进行AE RPC的log匹配
 		rf.followerHandleLog(args, reply)
+		if !reply.Success {
+			return
+		}
+
 		// follower更新commitIndex
+		// fixed: 日志匹配失败不应该更新commitIndex
 		rf.followerUpdateCommitIndex(args.LeaderCommit)
 		return
 	}

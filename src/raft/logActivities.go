@@ -12,7 +12,7 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 	if len(rf.log)-1 < args.PrevLogIndex {
 		reply.XTerm, reply.XIndex, reply.XLen = -1, len(rf.log), len(rf.log)
 		reply.Success = false
-		rf.PrintLog(fmt.Sprintf("log comapre FAILED, EMPTY ENTRY at PrevLogIndex, "+getAppendEntriesRPCStr(args, reply)), "purple")
+		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre FAILED,, EMPTY ENTRY at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
 		rf.PrintRfLog()
 		return
 	}
@@ -32,7 +32,7 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 		rf.log = rf.log[:args.PrevLogIndex]
 		reply.XTerm, reply.XIndex, reply.XLen = tarTerm, startIndex, len(rf.log)
 		reply.Success = false
-		rf.PrintLog(fmt.Sprintf("log comapre FAILED, CONFLICT at PrevLogIndex, "+getAppendEntriesRPCStr(args, reply)), "purple")
+		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre FAILED, CONFLICT at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
 		rf.PrintRfLog()
 		return
 	}
@@ -41,12 +41,51 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 	if args.PrevLogIndex == -1 || rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
 		// append arg中所有尚未append的日志(从PrevLogIndex开始，长度比较)
 		// 同一个Term下的AE RPC，不可能有先后2个RPC在同一prevLogIndex位置加了长度相同、内容不同的entries
-		if (len(rf.log)-1)-args.PrevLogIndex < len(args.Entries) {
+
+		//if (len(rf.log)-1)-args.PrevLogIndex <= len(args.Entries) {
+		//	rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		//}
+
+		// fixed: 考虑以下情况：
+		// [f1 1 2] [f2 1 2] [l1 1 2] leader被分区，接受另一个2，其他2个接受3，并选出新leader l2，l1认为自己仍是leader
+		// [f1 1 2 3] [l2 1 2 3] | [l1 1 2 2]
+		// 分区愈合，l2发送给l1新加的3，prevLogIndex=1 prevLogTerm=2 entries=3 leaderCommit=2
+		// 修改前，l1只接受拼接之后比自己长的日志，这会导致l1不覆盖日志并更新commitIndex
+		// 最终导致l1把原来应该覆盖掉的最后一个"2"给提交了
+		// 所以把上面判断条件"<"改为"<="
+		// TestRejoin2B发现了这个bug
+
+		// fixed2: 考虑以下情况
+		// 上面例子分区愈合之后，l1自认为leader，append了一条新的日志
+		// 这时候prevLogIndex + len(entries) < len(rf.log) - 1，然而仍然是entries日志更新，所以还是要逐个比较
+		// 分区愈合之前，且数据都已提交
+		// l1 1 2 2 2 少数rf所在分区，term=2，认为自己是leader
+		// l2 1 2 2 2 多数rf所在分区，term=3，一直是leader，真正的leader
+		// 分区愈合瞬间
+		// l1 1 2 2 2 | 2 2 接受了client输入
+		// l2 1 2 2 2 |
+		// l1下台，l2收到client输入
+		// l1 1 2 2 2 | 2 2
+		// l2 1 2 2 2 | 3
+		// l2发给l1 prevLogIndex=3 prevLogTerm=2 entries=[3] 因为l2当选leader的时候nextIndex数组初始化为4
+		// l1会认为日志匹配并保留自己的日志，使得l2误以为日志已复制，实际上却没有
+		// TestBackup2B
+
+		// 在rf.log[prevLogIndex + 1]直到rf日志末尾，如果出现和entries不匹配的情况，截断
+		if (len(rf.log)-1)-args.PrevLogIndex <= len(args.Entries) {
 			rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		} else { // rf日志比prevLogIndex + 1 + len(entries)更长，但并不意味着rf的日志更新
+			for i := args.PrevLogIndex + 1; i < args.PrevLogIndex+1+len(args.Entries); i++ {
+				if rf.log[i].Term != args.Entries[i-args.PrevLogIndex-1].Term {
+					remainingEntries := args.Entries[i-args.PrevLogIndex-1:]
+					rf.log = append(rf.log[:i], remainingEntries...)
+				}
+			}
 		}
+
 		reply.XTerm, reply.XIndex, reply.XLen = -1, -1, len(rf.log)
 		reply.Success = true
-		rf.PrintLog(fmt.Sprintf("log comapre SUCCESS, "+getAppendEntriesRPCStr(args, reply)), "purple")
+		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre SUCCESS, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
 		rf.PrintRfLog()
 		return
 	}
@@ -161,7 +200,7 @@ func (rf *Raft) followerUpdateCommitIndex(leaderCommit int) {
 
 	prevCommitIndex := rf.commitIndex
 	minCommitIndex := leaderCommit
-	if len(rf.log) < leaderCommit {
+	if len(rf.log)-1 < leaderCommit {
 		minCommitIndex = len(rf.log) - 1
 	}
 	rf.commitIndex = minCommitIndex
