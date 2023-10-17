@@ -172,14 +172,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command})
 		term = rf.currentTerm
 		index = len(rf.log) - 1
-		// TODO
-		//rf.matchIndex[rf.me] =
+
+		rf.matchIndex[rf.me] = index
+		rf.nextIndex[rf.me] = index + 1
+
 		//	rf.lastApplied
 		rf.PrintLog(fmt.Sprintf("Leader accepts a new log, [Term %d] [Index %d]", term, index), "skyblue")
 		rf.PrintRfLog()
 	}
 
-	return index, term, isLeader
+	return index + 1, term, isLeader
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -222,12 +224,13 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.mu.Lock()
 	rf.currentTerm = 0
 	rf.votedFor = -1
+	rf.applyCh = applyCh
 	rf.log = make([]LogEntry, 0)
 	rf.commitIndex = -1
 	rf.lastApplied = -1
 	rf.role = 0
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
-	rf.electionTimeout = 450 + rand.Intn(400)
+	rf.electionTimeout = 450 + rand.Intn(200)
 	rf.mu.Unlock()
 
 	// initialize from state persisted before a crash

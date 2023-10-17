@@ -38,8 +38,10 @@ func (rf *Raft) AppendEntriesRequestHandler(args *AppendEntriesArgs, reply *Appe
 		reply.Term = args.Term
 		reply.Success = true
 		reply.ServerId = rf.me
-		// compare and handle log
+		// follower进行AE RPC的log匹配
 		rf.followerHandleLog(args, reply)
+		// follower更新commitIndex
+		rf.followerUpdateCommitIndex(args.LeaderCommit)
 		return
 	}
 
@@ -54,7 +56,7 @@ func (rf *Raft) AppendEntriesResponseHandler(args *AppendEntriesArgs, reply *App
 	}
 
 	// 对方term更高，转为Follower
-	if reply.Term > rf.currentTerm {
+	if rf.currentTerm < reply.Term {
 		if reply.Success {
 			rf.PrintLog("ERROR", "red")
 		}
@@ -106,9 +108,7 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 			appendEntriesArgs := AppendEntriesArgs{currentTerm, rf.me, prevLogIndex, prevLogTerm, entries, leaderCommit}
 			appendEntriesReply := AppendEntriesReply{}
 
-			entriesStr := getLogStr(entries)
-
-			rf.PrintLog("AE RPC -----> [Server "+strconv.Itoa(curI)+"], "+"[Term "+strconv.Itoa(currentTerm)+"]"+" [prevLogIndex "+strconv.Itoa(prevLogIndex)+"]"+" [prevLogTerm"+strconv.Itoa(prevLogTerm)+"]"+" [LeaderCommit"+strconv.Itoa(leaderCommit)+"]"+" [Entries"+entriesStr+"]", "purple")
+			rf.PrintLog("AE RPC -----> [Server "+strconv.Itoa(curI)+"], "+getAppendEntriesRPCStr(&appendEntriesArgs, &appendEntriesReply), "purple")
 			ok := rf.sendAppendEntries(curI, &appendEntriesArgs, &appendEntriesReply)
 			if !ok {
 				// rf.PrintLog("AE RPC -----> [Server "+strconv.Itoa(curI)+"] Failed", "yellow")

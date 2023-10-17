@@ -18,8 +18,40 @@ func (rf *Raft) PrintLog(content string, color string) {
 	log.Println(logStr)
 }
 
-func (rf *Raft) PrintState(content string) {
+// locked 只能在有锁的情况下调用
+func (rf *Raft) PrintServerState(color string) {
+	nextIndexStr := "[nextIndex ["
+	for i := 0; i < len(rf.nextIndex); i++ {
+		nextIndexStr += strconv.Itoa(rf.nextIndex[i])
+		if i != len(rf.nextIndex)-1 {
+			nextIndexStr += " "
+		}
+	}
+	nextIndexStr += "]]"
 
+	matchIndexStr := "[matchIndex ["
+	for i := 0; i < len(rf.matchIndex); i++ {
+		matchIndexStr += strconv.Itoa(rf.matchIndex[i])
+		if i != len(rf.matchIndex)-1 {
+			matchIndexStr += " "
+		}
+	}
+	matchIndexStr += "]]"
+
+	logStr := "[log [" + getLogStr(rf.log) + "]]"
+
+	stateStr := "            [STATE]"
+
+	switch rf.role {
+	case 0:
+		stateStr += "[Follower " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
+	case 1:
+		stateStr += "[Candidate " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
+	case 2:
+		stateStr += "[Leader " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + nextIndexStr + matchIndexStr + logStr
+	}
+
+	rf.PrintLog(stateStr, color)
 }
 
 // locked 只能在有锁的情况下调用
@@ -32,7 +64,28 @@ func (rf *Raft) PrintRfLog() {
 func getLogStr(entries []LogEntry) string {
 	logStr := "["
 	for i := 0; i < len(entries); i++ {
-		logStr += strconv.Itoa(entries[i].Term) + " "
+		logStr += strconv.Itoa(entries[i].Term)
+		if entries[i].Command == nil {
+			logStr += "[nil]"
+			continue
+		} else if str, ok := entries[i].Command.(string); ok {
+			if len(str) > 10 {
+				str = str[:10]
+			}
+			logStr += "[" + str + "]"
+		} else if str, ok := entries[i].Command.(int); ok {
+			str := strconv.Itoa(str)
+			if len(str) > 10 {
+				str = str[:10]
+			}
+			logStr += "[" + str + "]"
+		} else {
+			logStr += "[unknown]"
+		}
+
+		if i != len(entries)-1 {
+			logStr += " "
+		}
 	}
 	logStr += "]"
 	return logStr

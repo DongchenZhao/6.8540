@@ -195,6 +195,9 @@ func TestFollowerFailure2B(t *testing.T) {
 
 	// disconnect one follower from the network.
 	leader1 := cfg.checkOneLeader()
+
+	printSplit(fmt.Sprintf("disconnect follower %d", (leader1+1)%servers))
+
 	cfg.disconnect((leader1 + 1) % servers)
 
 	// the leader and remaining follower should be
@@ -467,6 +470,7 @@ func TestRejoin2B(t *testing.T) {
 
 	// leader network failure
 	leader1 := cfg.checkOneLeader()
+	printSplit(fmt.Sprintf("[Old Leader %d] network failure", leader1))
 	cfg.disconnect(leader1)
 
 	// make old leader try to agree on some entries
@@ -479,6 +483,7 @@ func TestRejoin2B(t *testing.T) {
 
 	// new leader network failure
 	leader2 := cfg.checkOneLeader()
+	printSplit(fmt.Sprintf("[New Leader %d] network failure, [Leader %d] connects again", leader2, leader1))
 	cfg.disconnect(leader2)
 
 	// old leader connected again

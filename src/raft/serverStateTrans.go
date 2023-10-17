@@ -6,12 +6,16 @@ import (
 	"time"
 )
 
+// locked
 // 确保进入这个方法之前，获取了mu.lock
 func (rf *Raft) toFollower(term int) {
 	prevTerm := rf.currentTerm
 	prevRole := rf.role
 	prevRoleStr := getRoleStr(prevRole)
-	rf.PrintLog(fmt.Sprintf("Role [%s] ---> [Follower], [PrevTerm %d] [CurTerm %d] [PrevRole %s]", prevRoleStr, rf.currentTerm, term, prevRoleStr), "green")
+
+	if prevTerm < term || prevRole != 0 {
+		rf.PrintLog(fmt.Sprintf("Role [%s] ---> [Follower], [PrevTerm %d] [CurTerm %d] [PrevRole %s]", prevRoleStr, rf.currentTerm, term, prevRoleStr), "green")
+	}
 
 	rf.role = 0
 	if prevTerm < term {
@@ -69,7 +73,7 @@ func (rf *Raft) toLeader() {
 
 	roleStr := getRoleStr(rf.role)
 	rf.PrintLog(fmt.Sprintf("Role ["+roleStr+"] ---> [Leader], [Term: %d]", rf.currentTerm), "green")
-	rf.PrintState("Leader PrintState")
+	rf.PrintServerState("green")
 	rf.role = 2
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
@@ -97,6 +101,7 @@ func (rf *Raft) leaderTicker() {
 			return
 		}
 
+		rf.leaderUpdateCommitIndex()
 		rf.leaderSendAppendEntriesRPC()
 
 		time.Sleep(120 * time.Millisecond)
