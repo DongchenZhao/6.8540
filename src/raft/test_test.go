@@ -930,10 +930,16 @@ func TestFigure8Unreliable2C(t *testing.T) {
 
 	cfg.one(rand.Int()%10000, 1, true)
 
+	iter1 := 1000
+	iter2 := 200
+
 	nup := servers
-	for iters := 0; iters < 1000; iters++ {
-		if iters == 200 {
-			cfg.setlongreordering(true)
+	for iters := 0; iters < iter1; iters++ {
+
+		printSplit(fmt.Sprintf("iter no.%d", iters))
+
+		if iters == iter2 {
+			cfg.setlongreordering(true) // // sometimes delay replies a long time
 		}
 		leader := -1
 		for i := 0; i < servers; i++ {
@@ -953,6 +959,10 @@ func TestFigure8Unreliable2C(t *testing.T) {
 
 		if leader != -1 && (rand.Int()%1000) < int(RaftElectionTimeout/time.Millisecond)/2 {
 			cfg.disconnect(leader)
+
+			printSplit(fmt.Sprintf("iter no.%d, disconnect [Leader %d]", iters, leader))
+			printConnectStatus(cfg)
+
 			nup -= 1
 		}
 
@@ -960,10 +970,16 @@ func TestFigure8Unreliable2C(t *testing.T) {
 			s := rand.Int() % servers
 			if cfg.connected[s] == false {
 				cfg.connect(s)
+
+				printSplit(fmt.Sprintf("iter no.%d, connect [Server %d]", iters, s))
+				printConnectStatus(cfg)
+
 				nup += 1
 			}
 		}
 	}
+
+	printSplit("iter DONE, connect ALL")
 
 	for i := 0; i < servers; i++ {
 		if cfg.connected[i] == false {
@@ -971,9 +987,24 @@ func TestFigure8Unreliable2C(t *testing.T) {
 		}
 	}
 
+	printSplit("LAST LOG ENTRY")
+
 	cfg.one(rand.Int()%10000, servers, true)
 
 	cfg.end()
+}
+
+func printConnectStatus(cfg *config) {
+	var connected []int
+	var disconnected []int
+	for k := 0; k < len(cfg.connected); k++ {
+		if cfg.connected[k] {
+			connected = append(connected, k)
+		} else {
+			disconnected = append(disconnected, k)
+		}
+	}
+	printSplit(fmt.Sprintf("connected: %v, disconnected: %v", connected, disconnected))
 }
 
 func internalChurn(t *testing.T, unreliable bool) {

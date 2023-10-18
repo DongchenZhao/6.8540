@@ -18,6 +18,8 @@ package raft
 //
 
 import (
+	"6.5840/labgob"
+	"bytes"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -90,8 +92,6 @@ type Raft struct {
 	applyChBuffer     []ApplyMsg
 	applyChMu         sync.RWMutex
 	applyChCond       sync.Cond
-
-	lockTest int
 }
 
 // return currentTerm and whether this server
@@ -116,15 +116,18 @@ func (rf *Raft) GetState() (int, bool) {
 // second argument to persister.Save().
 // after you've implemented snapshots, pass the current snapshot
 // (or nil if there's not yet a snapshot).
+
+// locked
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
-	// w := new(bytes.Buffer)
-	// e := labgob.NewEncoder(w)
-	// e.Encode(rf.xxx)
-	// e.Encode(rf.yyy)
-	// raftstate := w.Bytes()
-	// rf.persister.Save(raftstate, nil)
+	w := new(bytes.Buffer)
+	e := labgob.NewEncoder(w)
+	e.Encode(rf.currentTerm)
+	e.Encode(rf.votedFor)
+	e.Encode(rf.log)
+	raftState := w.Bytes()
+	rf.persister.Save(raftState, nil)
 }
 
 // restore previously persisted state.
@@ -134,17 +137,19 @@ func (rf *Raft) readPersist(data []byte) {
 	}
 	// Your code here (2C).
 	// Example:
-	// r := bytes.NewBuffer(data)
-	// d := labgob.NewDecoder(r)
-	// var xxx
-	// var yyy
-	// if d.Decode(&xxx) != nil ||
-	//    d.Decode(&yyy) != nil {
-	//   error...
-	// } else {
-	//   rf.xxx = xxx
-	//   rf.yyy = yyy
-	// }
+	r := bytes.NewBuffer(data)
+	d := labgob.NewDecoder(r)
+	var currentTerm int
+	var votedFor int
+	var log []LogEntry
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&log) != nil {
+		// error...
+		rf.PrintLog("DECODE ERROR", "red")
+	} else {
+		rf.currentTerm = currentTerm
+		rf.votedFor = votedFor
+		rf.log = log
+	}
 }
 
 // the service says it has created a snapshot that has
@@ -185,6 +190,8 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.PrintLog(fmt.Sprintf("Leader accepts a new log, [Term %d] [Index %d]", term, index), "skyblue")
 		rf.PrintRfLog()
 		rf.PrintServerState("red")
+
+		rf.persist()
 
 		rf.mu.Unlock()
 		rf.leaderSendAppendEntriesRPC()
@@ -263,9 +270,9 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.applyChCond = *sync.NewCond(&rf.applyChMu)
 	rf.applyChBuffer = make([]ApplyMsg, 0)
 
-	// Your initialization code here (2A, 2B, 2C).
 	// 初始化
 	rf.mu.Lock()
+
 	rf.currentTerm = 0
 	rf.votedFor = -1
 	rf.log = make([]LogEntry, 0)
@@ -274,10 +281,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.role = 0
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
 	rf.electionTimeout = 200 + rand.Intn(100)
-	rf.mu.Unlock()
 
 	// initialize from state persisted before a crash
 	rf.readPersist(persister.ReadRaftState())
+
+	rf.PrintLog(fmt.Sprintf("RESTARTED"), "red")
+	rf.PrintServerState("red")
+
+	rf.mu.Unlock()
 
 	// start ticker goroutine to start elections
 	go rf.ticker()

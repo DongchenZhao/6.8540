@@ -26,6 +26,7 @@ type AppendEntriesReply struct {
 func (rf *Raft) AppendEntriesRequestHandler(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	// 1. 自己term比leader大，拒绝leader
 	if args.Term < rf.currentTerm {

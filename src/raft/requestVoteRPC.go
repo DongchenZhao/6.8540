@@ -21,6 +21,7 @@ type RequestVoteReply struct {
 func (rf *Raft) RequestVoteRequestHandler(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist()
 
 	// 0.1 自己term小，转为follower(并重置timeout[删除])，然后继续研判candidate的投票请求
 	if rf.currentTerm < args.Term {
@@ -45,7 +46,9 @@ func (rf *Raft) RequestVoteRequestHandler(args *RequestVoteArgs, reply *RequestV
 
 	// 2.1 已有votedFor，礼貌拒绝
 	// votedFor == CandidateId可以继续，考虑persist
-	if rf.votedFor != -1 && rf.votedFor != args.CandidateId {
+	// TODO 当前rf如何知道自己是否会重复投票，其实应该无所谓，candidate只发送了1次投票请求
+	// if rf.votedFor != -1 && rf.votedFor != args.CandidateId {
+	if rf.votedFor != -1 {
 		rf.PrintLog(fmt.Sprintf("RV RPC Resp ------> [Candidate %d] REJECT due to already voted. [Server Term %d], [VotedFor: %d], [Candidate Term %d]", args.CandidateId, rf.currentTerm, rf.votedFor, args.Term), "default")
 		reply.Term = rf.currentTerm
 		reply.VoteGranted = false

@@ -12,8 +12,8 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 	if len(rf.log)-1 < args.PrevLogIndex {
 		reply.XTerm, reply.XIndex, reply.XLen = -1, len(rf.log), len(rf.log)
 		reply.Success = false
-		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre FAILED,, EMPTY ENTRY at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
-		rf.PrintRfLog()
+		rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre FAILED,, EMPTY ENTRY at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
+		rf.PrintServerState("purple")
 		return
 	}
 
@@ -32,8 +32,8 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 		rf.log = rf.log[:args.PrevLogIndex]
 		reply.XTerm, reply.XIndex, reply.XLen = tarTerm, startIndex, len(rf.log)
 		reply.Success = false
-		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre FAILED, CONFLICT at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
-		rf.PrintRfLog()
+		rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre FAILED, CONFLICT at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
+		rf.PrintServerState("purple")
 		return
 	}
 
@@ -85,8 +85,8 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 
 		reply.XTerm, reply.XIndex, reply.XLen = -1, -1, len(rf.log)
 		reply.Success = true
-		rf.PrintLog(fmt.Sprintf("Handle AE RPC req from [Leader %d], log comapre SUCCESS, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
-		rf.PrintRfLog()
+		rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre SUCCESS, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
+		rf.PrintServerState("purple")
 		return
 	}
 }
@@ -156,24 +156,9 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 	sort.Ints(sortedMatchIndex)
 
 	// 滑动窗口查找matchIndex中大多数
-	majorityIndex := -1
-	i, windowLen := 0, 0
-	for {
-		if i+windowLen > len(sortedMatchIndex)-1 {
-			break
-		}
-		if windowLen+1 >= (len(rf.peers)+1)/2 {
-			majorityIndex = sortedMatchIndex[i]
-		}
-		if sortedMatchIndex[i] != sortedMatchIndex[i+windowLen] {
-			i = i + windowLen
-			windowLen = 0
-		}
-		windowLen += 1
-	}
-
-	//rf.PrintLog(fmt.Sprintf("Leader update commitIndex, majorityIndex: %d", majorityIndex), "yellow")
-	//rf.PrintServerState("yellow")
+	// fixed: 无法处理[1 2 3]这种情况
+	// 排序，取数组最后(n + 1)/2个元素的第一个
+	majorityIndex := sortedMatchIndex[(len(rf.peers)+1)/2-1]
 
 	// leader认为大多数rf日志为空，无需提交
 	if majorityIndex == -1 {
@@ -187,6 +172,8 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 		prevCommitIndex := rf.commitIndex
 		rf.commitIndex = majorityIndex
 		rf.lastApplied = rf.commitIndex
+		rf.PrintLog(fmt.Sprintf("Leader update commitIndex, [PrevCommitIndex %d] [CurCommitIndex %d]", prevCommitIndex, rf.commitIndex), "yellow")
+		rf.PrintServerState("yellow")
 		// 向chan发送消息，传入prevCommitIndex和curCommitIndex
 		rf.sendCommittedLogoChannel(prevCommitIndex, rf.commitIndex)
 	}

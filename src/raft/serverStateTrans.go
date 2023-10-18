@@ -28,12 +28,14 @@ func (rf *Raft) toFollower(term int) {
 func (rf *Raft) toCandidate() {
 
 	// 1.增加Term  2.vote给自己  3.重置计时器
+	// fixed：重置选举超时时间，否则可能会出现某个candidate长时间压制的问题
 	rf.mu.Lock()
 	roleStr := getRoleStr(rf.role)
 	rf.role = 1
 	rf.currentTerm += 1
 	rf.votedFor = rf.me
 	rf.voteCnt = 1
+	rf.electionTimeout = 200 + rand.Intn(100)
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
 	rf.PrintLog(fmt.Sprintf("Role [%s]---> [Candidate], update term from [Term %d] to [Term %d]", roleStr, rf.currentTerm-1, rf.currentTerm), "green")
 
@@ -83,6 +85,9 @@ func (rf *Raft) toLeader() {
 	rf.nextIndex[rf.me] = len(rf.log)
 	rf.matchIndex[rf.me] = len(rf.log) - 1
 
+	rf.votedFor = -1 // 持久化之后至少不会产生歧义，毕竟是上一个term投的票了
+	rf.persist()
+
 	rf.mu.Unlock()
 
 	go rf.leaderTicker()
@@ -118,7 +123,7 @@ func (rf *Raft) ticker() {
 
 		// leader不需要定期检查心跳是否超时
 		if role == 2 {
-			return
+			continue
 		}
 
 		// follower或candidate检查election timeout

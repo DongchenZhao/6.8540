@@ -50,3 +50,33 @@ variable (Go's sync.Cond) for this.
 - TODO: Start()中收到日志之后立即发送AE RPC [DONE]
 
 ## lab2C
+
+- persistent state: 在响应RPC之前persist
+- votedFor 是否需要改
+
+- 对于follower
+  - 在handleAERPCRequest和handleRVRPCRequest释放锁之前persist()
+- 对于leader
+  - 当选的时候persist一下（有用吗）
+  - Start收到日志的时候persist一下
+- 对于candidate
+  - candidate持有自己的votedFor然后重启怎么办
+
+
+PASS
+ok      6.5840/raft     130.978s
+go test -race -run 2C  40.06s user 1.81s system 31% cpu 2:11.29 total
+
+
+
+- TODO
+  - leader稳定的时候如果接收大量日志会逐一发送给follower
+  - leader 计算commit算法有误，commitIndex=0，matchIndex=[1 2 3]无法更新commitIndex
+  - 防止选举压制，成为candidate之后重置自己的election timeout
+    - 貌似不是选举压制问题，而是ticker中continue写成return了
+    - 草
+
+--- FAIL: TestFigure8Unreliable2C (47.44s)
+config.go:601: one(9713) failed to reach agreement
+
+## lab2D
