@@ -37,3 +37,14 @@
         - 注意在这种情况下，follower返回的conflictIndex是没有用的（即leader具有conflict点所在term的term串，如果leader没有，则会跳过follower的这个term串继续）
       
       - If it does not find an entry with that term, it should set nextIndex = conflictIndex.
+
+
+You'll want to have a separate long-running goroutine that sends
+committed log entries in order on the applyCh. It must be separate,
+since sending on the applyCh can block; and it must be a single
+goroutine, since otherwise it may be hard to ensure that you send log
+entries in log order. The code that advances commitIndex will need to
+kick the apply goroutine; it's probably easiest to use a condition
+variable (Go's sync.Cond) for this.
+
+## lab2C

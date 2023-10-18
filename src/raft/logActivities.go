@@ -209,9 +209,9 @@ func (rf *Raft) followerUpdateCommitIndex(leaderCommit int) {
 
 // locked
 func (rf *Raft) sendCommittedLogoChannel(prevCommitIndex int, curCommitIndex int) {
+	applyMsgLs := make([]ApplyMsg, 0)
 	for i := prevCommitIndex + 1; i <= curCommitIndex; i++ {
-		rf.PrintLog(fmt.Sprintf("Send newly commited log, [Index: %d]", i), "yellow")
-		rf.PrintServerState("yellow")
-		rf.applyCh <- ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: i + 1}
+		applyMsgLs = append(applyMsgLs, ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: i + 1})
 	}
+	go rf.putApplyChBuffer(applyMsgLs)
 }

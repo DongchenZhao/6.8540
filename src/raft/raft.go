@@ -86,6 +86,10 @@ type Raft struct {
 	voteCnt           int
 	curLeader         int
 	applyCh           chan ApplyMsg
+	applyMsgReady     bool
+	applyChBuffer     []ApplyMsg
+	applyChMu         sync.RWMutex
+	applyChCond       sync.Cond
 }
 
 // return currentTerm and whether this server
@@ -204,6 +208,36 @@ func (rf *Raft) killed() bool {
 	return z == 1
 }
 
+// 写入器，将数据写入缓冲区
+func (rf *Raft) putApplyChBuffer(msg []ApplyMsg) {
+	rf.applyChMu.Lock()
+	for len(rf.applyChBuffer) != 0 {
+		rf.applyChCond.Wait()
+	}
+	rf.applyChBuffer = append(rf.applyChBuffer, msg...)
+	rf.applyChCond.Signal()
+	rf.applyChMu.Unlock()
+
+}
+
+// 读取器，将数据从缓冲区发送到applyCh
+func (rf *Raft) getApplyChBuffer() {
+	for !rf.killed() {
+		rf.applyChMu.Lock()
+		for len(rf.applyChBuffer) == 0 {
+			rf.applyChCond.Wait()
+		}
+		for i := 0; i < len(rf.applyChBuffer); i++ {
+			rf.PrintLog(fmt.Sprintf("Send newly commited log, [Index: %d]", i), "yellow")
+			rf.PrintServerState("yellow")
+			rf.applyCh <- rf.applyChBuffer[i]
+		}
+		rf.applyChBuffer = make([]ApplyMsg, 0)
+		rf.applyChCond.Signal()
+		rf.applyChMu.Unlock()
+	}
+}
+
 // the service or tester wants to create a Raft server. the ports
 // of all the Raft servers (including this one) are in peers[]. this
 // server's port is peers[me]. all the servers' peers[] arrays
@@ -220,18 +254,21 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.persister = persister
 	rf.me = me
 
+	rf.applyCh = applyCh
+	rf.applyChCond = *sync.NewCond(&rf.applyChMu)
+	rf.applyChBuffer = make([]ApplyMsg, 0)
+
 	// Your initialization code here (2A, 2B, 2C).
 	// 初始化
 	rf.mu.Lock()
 	rf.currentTerm = 0
 	rf.votedFor = -1
-	rf.applyCh = applyCh
 	rf.log = make([]LogEntry, 0)
 	rf.commitIndex = -1
 	rf.lastApplied = -1
 	rf.role = 0
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
-	rf.electionTimeout = 450 + rand.Intn(200)
+	rf.electionTimeout = 200 + rand.Intn(100)
 	rf.mu.Unlock()
 
 	// initialize from state persisted before a crash
@@ -239,6 +276,8 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// start ticker goroutine to start elections
 	go rf.ticker()
+
+	go rf.getApplyChBuffer()
 
 	return rf
 }

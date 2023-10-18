@@ -62,27 +62,26 @@ func (rf *Raft) PrintRfLog() {
 
 // 返回日志片段的字符串
 func getLogStr(entries []LogEntry) string {
-	return "[---]"
 	logStr := "["
 	for i := 0; i < len(entries); i++ {
 		logStr += strconv.Itoa(entries[i].Term)
-		if entries[i].Command == nil {
-			logStr += "[nil]"
-			continue
-		} else if str, ok := entries[i].Command.(string); ok {
-			if len(str) > 10 {
-				str = str[:10]
-			}
-			logStr += "[" + str + "]"
-		} else if str, ok := entries[i].Command.(int); ok {
-			str := strconv.Itoa(str)
-			if len(str) > 10 {
-				str = str[:10]
-			}
-			logStr += "[" + str + "]"
-		} else {
-			logStr += "[unknown]"
-		}
+		//if entries[i].Command == nil {
+		//	logStr += "[nil]"
+		//	continue
+		//} else if str, ok := entries[i].Command.(string); ok {
+		//	if len(str) > 10 {
+		//		str = str[:4]
+		//	}
+		//	logStr += "[" + str + "]"
+		//} else if str, ok := entries[i].Command.(int); ok {
+		//	str := strconv.Itoa(str)
+		//	if len(str) > 10 {
+		//		str = str[:4]
+		//	}
+		//	logStr += "[" + str + "]"
+		//} else {
+		//	logStr += "[unknown]"
+		//}
 
 		if i != len(entries)-1 {
 			logStr += " "

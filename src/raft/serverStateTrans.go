@@ -102,7 +102,7 @@ func (rf *Raft) leaderTicker() {
 		rf.leaderUpdateCommitIndex()
 		rf.leaderSendAppendEntriesRPC()
 
-		time.Sleep(120 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 

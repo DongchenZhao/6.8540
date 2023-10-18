@@ -107,8 +107,8 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 			}
 			entries := make([]LogEntry, len(log)-(prevLogIndex+1))
 			for j := 0; j < len(log)-(prevLogIndex+1); j++ {
-				entries[j].Term = rf.log[j+prevLogIndex+1].Term
-				entries[j].Command = rf.log[j+prevLogIndex+1].Command
+				entries[j].Term = log[j+prevLogIndex+1].Term
+				entries[j].Command = log[j+prevLogIndex+1].Command
 			}
 
 			appendEntriesArgs := AppendEntriesArgs{currentTerm, rf.me, prevLogIndex, prevLogTerm, entries, leaderCommit}
