@@ -95,6 +95,9 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
 		go func() {
+
+			// rf.lockTest += 1
+
 			if curI == rf.me {
 				return
 			}

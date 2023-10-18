@@ -90,6 +90,8 @@ type Raft struct {
 	applyChBuffer     []ApplyMsg
 	applyChMu         sync.RWMutex
 	applyChCond       sync.Cond
+
+	lockTest int
 }
 
 // return currentTerm and whether this server
@@ -167,7 +169,6 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 // the leader.
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
-	defer rf.mu.Unlock()
 
 	index := -1
 	term := 0
@@ -184,9 +185,15 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 		rf.PrintLog(fmt.Sprintf("Leader accepts a new log, [Term %d] [Index %d]", term, index), "skyblue")
 		rf.PrintRfLog()
 		rf.PrintServerState("red")
-	}
 
-	return index + 1, term, isLeader
+		rf.mu.Unlock()
+		rf.leaderSendAppendEntriesRPC()
+
+		return index + 1, term, isLeader
+	} else {
+		rf.mu.Unlock()
+		return -1, 0, isLeader
+	}
 }
 
 // the tester doesn't halt goroutines created by Raft after each test,
@@ -217,7 +224,6 @@ func (rf *Raft) putApplyChBuffer(msg []ApplyMsg) {
 	rf.applyChBuffer = append(rf.applyChBuffer, msg...)
 	rf.applyChCond.Signal()
 	rf.applyChMu.Unlock()
-
 }
 
 // 读取器，将数据从缓冲区发送到applyCh
@@ -229,7 +235,6 @@ func (rf *Raft) getApplyChBuffer() {
 		}
 		for i := 0; i < len(rf.applyChBuffer); i++ {
 			rf.PrintLog(fmt.Sprintf("Send newly commited log, [Index: %d]", i), "yellow")
-			rf.PrintServerState("yellow")
 			rf.applyCh <- rf.applyChBuffer[i]
 		}
 		rf.applyChBuffer = make([]ApplyMsg, 0)
@@ -277,6 +282,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	// start ticker goroutine to start elections
 	go rf.ticker()
 
+	// 单独的用于发送日志的goroutine
 	go rf.getApplyChBuffer()
 
 	return rf

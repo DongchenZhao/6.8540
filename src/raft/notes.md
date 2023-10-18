@@ -47,4 +47,6 @@ entries in log order. The code that advances commitIndex will need to
 kick the apply goroutine; it's probably easiest to use a condition
 variable (Go's sync.Cond) for this.
 
+- TODO: Start()中收到日志之后立即发送AE RPC [DONE]
+
 ## lab2C
