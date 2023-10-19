@@ -45,6 +45,7 @@ func (rf *Raft) PrintServerState(color string) {
 	switch rf.role {
 	case 0:
 		stateStr += "[Follower " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
+		// stateStr += fmt.Sprintf("[Follower %d]", rf.me)
 	case 1:
 		stateStr += "[Candidate " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
 	case 2:

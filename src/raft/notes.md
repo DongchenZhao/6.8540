@@ -47,7 +47,7 @@ entries in log order. The code that advances commitIndex will need to
 kick the apply goroutine; it's probably easiest to use a condition
 variable (Go's sync.Cond) for this.
 
-- TODO: Start()中收到日志之后立即发送AE RPC [DONE]
+- TODO: Start()中收到日志之后立即发送AE RPC [DONE], 性能问题
 
 ## lab2C
 
@@ -80,3 +80,41 @@ go test -race -run 2C  40.06s user 1.81s system 31% cpu 2:11.29 total
 config.go:601: one(9713) failed to reach agreement
 
 ## lab2D
+
+- 修改日志的index储存方式，不再以下标作为索引，回归测试15遍
+
+在 Lab 2D 中，测试人员定期调用 Snapshot()。在实验 3 中，您将编写一个调用 Snapshot() 的键/值服务器；快照将包含完整的键/值对表。服务层在每个对等点（不仅仅是领导者）上调用 Snapshot()。
+
+索引参数指示快照中反映的最高日志条目。 Raft 应丢弃该点之前的日志条目。您需要修改 Raft 代码才能在仅存储日志尾部的情况下进行操作。
+
+您需要实现本文中讨论的 InstallSnapshot RPC，它允许 Raft 领导者告诉落后的 Raft 对等方用快照替换其状态。您可能需要考虑 InstallSnapshot 应如何与图 2 中的状态和规则进行交互。
+
+当follower的Raft代码收到InstallSnapshot RPC时，它可以使用applyCh将快照发送到ApplyMsg中的服务。 ApplyMsg 结构定义已包含您需要的字段（以及测试人员期望的字段）。请注意，这些快照只会推进服务的状态，而不会导致其向后移动（backwards）。
+
+如果服务器崩溃，它必须从持久数据重新启动。您的 Raft 应该保留 Raft 状态和相应的快照。使用 persister.Save() 的第二个参数来保存快照。如果没有快照，则传递 nil 作为第二个参数。
+
+- 使用 persister.Save() 的第二个参数来保存快照。如果没有快照，则传递 nil 作为第二个参数。
+- 一个好的起点是修改您的代码，以便它能够仅存储从某个索引 X 开始的日志部分。最初，您可以将 X 设置为零并运行 2B/2C 测试。然后让Snapshot(index)丢弃index之前的日志，并设置X等于index。如果一切顺利，您现在应该通过第一个 2D 测试。
+- 在单个 InstallSnapshot RPC 中发送整个快照。不要实现图 13 的偏移机制来分割快照。
+- Raft 必须以允许 Go 垃圾收集器释放并重新使用内存的方式丢弃旧日志条目；这要求对被丢弃的日志条目没有可到达的引用（指针）。
+- Even when the log is trimmed, your implemention still needs to properly send the term and index of the entry prior to new entries in AppendEntries RPCs; this may require saving and referencing the latest snapshot's lastIncludedTerm/lastIncludedIndex (consider whether this should be persisted).
+- 即使日志被修剪，您的实现仍然需要在 AppendEntries RPC 中的新条目之前正确发送条目的term和索引；这可能需要保存并引用最新快照的lastIncludedTerm/lastIncludedIndex（考虑是否应该保留它）。
+
+------
+关于follower是否有可能比leader更快拍摄快照
+
+> ---Term2
+> F: 1 1 1 1 1 2
+> L: 1 1 1 1 1 2
+> --leader 将2设为commit，然后自己拍摄快照，但commit并未同步到F
+> F 1 1 1 1 1 2
+> L - - - - - -
+> --F当选，旧leader成为拍照过快的follower
+> L 1 1 1 1 1 2 3 3 3 3
+> F - - - - - -
+> --L(旧F)将matchIndex设置为[-1, -1, -1...], nextIndex设置为[10, 6, 6...]
+> 日志匹配
+> --假设代码有优化，leader连续接收日志后，nextIndex设置为[10, 10, 10]
+> 日志不匹配，F返回冲突位置，即拍摄快照的位置
+> follower无论拍摄多快，拍摄的都是commit的日志，即使有日志优化，leader也不会匹配commit之前的某一条日志
+> 因此，**leader不会匹配snapshot中的日志**, 即leader不会匹配commit的日志（除了commit的最后一条）

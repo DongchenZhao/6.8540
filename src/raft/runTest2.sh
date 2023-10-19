@@ -4,11 +4,11 @@
 #rm -rf /home/zdc/test2B/*
 #mkdir -p /home/zdc/test2B
 
-testName="test2C"
-testcase="2C"
+testName="test2B"
+testcase="2B"
 folderName=${testName}
 
-for run in {1..30}; do
+for run in {31..40}; do
     echo "start test No.${run}"
     timestamp=$(date +%s)
     log_file="/home/zdc/${folderName}/${run}-${timestamp}-${testName}.txt"

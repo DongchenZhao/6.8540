@@ -53,6 +53,7 @@ type ApplyMsg struct {
 
 type LogEntry struct {
 	Term    int
+	Index   int
 	Command interface{}
 }
 
@@ -92,6 +93,11 @@ type Raft struct {
 	applyChBuffer     []ApplyMsg
 	applyChMu         sync.RWMutex
 	applyChCond       sync.Cond
+
+	// ------ snapshot ------
+	snapshotCommand interface{}
+	snapshotIndex   int
+	snapshotTerm    int
 }
 
 // return currentTerm and whether this server
@@ -175,13 +181,12 @@ func (rf *Raft) Snapshot(index int, snapshot []byte) {
 func (rf *Raft) Start(command interface{}) (int, int, bool) {
 	rf.mu.Lock()
 
-	index := -1
-	term := 0
 	isLeader := rf.role == 2
 	if isLeader {
+		// TODO 修改logIndex计算方式
 		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command})
-		term = rf.currentTerm
-		index = len(rf.log) - 1
+		term := rf.currentTerm
+		index := len(rf.log) - 1
 
 		rf.matchIndex[rf.me] = index
 		rf.nextIndex[rf.me] = index + 1
@@ -282,7 +287,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
 	rf.electionTimeout = 200 + rand.Intn(100)
 
-	// initialize from state persisted before a crash
+	// 读取持久化数据
 	rf.readPersist(persister.ReadRaftState())
 
 	rf.PrintLog(fmt.Sprintf("RESTARTED"), "red")

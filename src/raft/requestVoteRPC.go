@@ -46,7 +46,7 @@ func (rf *Raft) RequestVoteRequestHandler(args *RequestVoteArgs, reply *RequestV
 
 	// 2.1 已有votedFor，礼貌拒绝
 	// votedFor == CandidateId可以继续，考虑persist
-	// TODO 当前rf如何知道自己是否会重复投票，其实应该无所谓，candidate只发送了1次投票请求
+	// 当前rf如何知道自己是否会重复投票，其实应该无所谓，candidate只发送了1次投票请求
 	// if rf.votedFor != -1 && rf.votedFor != args.CandidateId {
 	if rf.votedFor != -1 {
 		rf.PrintLog(fmt.Sprintf("RV RPC Resp ------> [Candidate %d] REJECT due to already voted. [Server Term %d], [VotedFor: %d], [Candidate Term %d]", args.CandidateId, rf.currentTerm, rf.votedFor, args.Term), "default")
