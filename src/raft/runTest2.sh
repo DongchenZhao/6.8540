@@ -8,7 +8,7 @@ testName="test2B"
 testcase="2B"
 folderName=${testName}
 
-for run in {31..40}; do
+for run in {41..50}; do
     echo "start test No.${run}"
     timestamp=$(date +%s)
     log_file="/home/zdc/${folderName}/${run}-${timestamp}-${testName}.txt"

@@ -71,8 +71,8 @@ go test -race -run 2C  40.06s user 1.81s system 31% cpu 2:11.29 total
 
 - TODO
   - leader稳定的时候如果接收大量日志会逐一发送给follower
-  - leader 计算commit算法有误，commitIndex=0，matchIndex=[1 2 3]无法更新commitIndex
-  - 防止选举压制，成为candidate之后重置自己的election timeout
+  - leader 计算commit算法有误，commitIndex=0，matchIndex=[1 2 3]无法更新commitIndex 【done】
+  - 防止选举压制，成为candidate之后重置自己的election timeout   【done】
     - 貌似不是选举压制问题，而是ticker中continue写成return了
     - 草
 
@@ -80,8 +80,6 @@ go test -race -run 2C  40.06s user 1.81s system 31% cpu 2:11.29 total
 config.go:601: one(9713) failed to reach agreement
 
 ## lab2D
-
-- 修改日志的index储存方式，不再以下标作为索引，回归测试15遍
 
 在 Lab 2D 中，测试人员定期调用 Snapshot()。在实验 3 中，您将编写一个调用 Snapshot() 的键/值服务器；快照将包含完整的键/值对表。服务层在每个对等点（不仅仅是领导者）上调用 Snapshot()。
 
@@ -118,3 +116,40 @@ config.go:601: one(9713) failed to reach agreement
 > 日志不匹配，F返回冲突位置，即拍摄快照的位置
 > follower无论拍摄多快，拍摄的都是commit的日志，即使有日志优化，leader也不会匹配commit之前的某一条日志
 > 因此，**leader不会匹配snapshot中的日志**, 即leader不会匹配commit的日志（除了commit的最后一条）
+
+更正，follower也可以独立拍摄快照
+> The service layer calls Snapshot() on every peer (not just on the leader).[lab要求]
+> 这种快照方法背离了 Raft 的强领导者原则，因为追随者可以在领导者不知情的情况下拍摄快照。[论文]
+> 如果match到快照的index和term，follower match的结果一定属于commitIndex的，那么一定会match
+
+
+---------------
+- -----------需要做的-----------
+- 貌似client端都是默认index从1开始的，但raft内部是index从0开始计数的
+- 不只有leader会拍摄快照
+  - service layer也可以向follower发送快照指令，貌似这个拍摄快照的频率就是取决于service layer
+  - 假设：client(即service layer)发送快照指令时，index肯定是已提交的.【证明】：client肯定是要根据applyMsgChan中传回的信息来决定是否installSnapshot
+- 在server上新增以下属性（全都是persist）
+  - snapshot（快照本体）
+  - snapshotIndex（快照的index，最小为0）
+  - snapshotTerm（快照的term，最小应该是1）
+- 修改LogEntry定义，在entry中存储Index
+- 修改persist方法，持久化新加入的属性
+- 新增persist的位置
+  - 任何server快照完之后
+  - IS RPC req handler，接受leader snapshot，回复leader之前
+- 修改RV RPC中的逻辑
+  - 所有的term和index都要额外考虑当前rf是否有快照，如果日志为空但是有快照，则term和index以快照中的为准
+- 修改AE RPC中的resp handler
+  - leader在匹配日志过程中，如果对方匹配的index小于leader的快照，就给对方installSnapshot
+  - 假设：日志不匹配且落后太多是触发installSnapshot RPC的唯一途径
+  - 假设：leader不会像需要发送快照的follower那样，落后太多。【证明】：leader包含最新的commit，需要发送快照的follower没有包含最新的commit
+  - 假设：commitIndex不会受快照影响。【证明】：follower只有在日志匹配的情况下才会更新commitIndex，如果快照落后太多，就不会匹配到commitIndex处的日志
+- IS RPC
+  - req
+    - 触发的条件是日志不匹配，且leader已经没有不匹配位置的日志信息了
+  - req handler
+  - resp handler
+  - snapshot入口函数（即被client调用的）
+- 关于并发和陈旧RPC的思考
+  - TODO

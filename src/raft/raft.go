@@ -94,10 +94,10 @@ type Raft struct {
 	applyChMu         sync.RWMutex
 	applyChCond       sync.Cond
 
-	// ------ snapshot ------
-	snapshotCommand interface{}
-	snapshotIndex   int
-	snapshotTerm    int
+	// ------ snapshot, persistent state on all servers ------
+	snapshot      []byte
+	snapshotIndex int
+	snapshotTerm  int
 }
 
 // return currentTerm and whether this server
@@ -164,6 +164,8 @@ func (rf *Raft) readPersist(data []byte) {
 // that index. Raft should now trim its log as much as possible.
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
+	targetIndex := index - 1
+	rf.installSnapShot(targetIndex, snapshot)
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
