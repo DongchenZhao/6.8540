@@ -6,6 +6,28 @@ import (
 	"strconv"
 )
 
+// locked
+// 查找Index为target的日志的下标
+func (rf *Raft) findIndex(target int) int {
+	for i := 0; i < len(rf.log); i++ {
+		if rf.log[i].Index == target {
+			return i
+		}
+	}
+	return -1
+}
+
+// locked
+// 返回当前rf最后一条日志(可能是快照)的index和term
+// 如果日志为空，返回-1, 0
+func (rf *Raft) getLastLogIndexAndTerm() (int, int) {
+	if len(rf.log) > 0 {
+		return rf.log[len(rf.log)-1].Index, rf.log[len(rf.log)-1].Term
+	} else {
+		return rf.snapshotIndex, rf.snapshotTerm
+	}
+}
+
 func printSplit(content string) {
 	log.Println("")
 	log.Printf("-------------------%s-------------------", content)

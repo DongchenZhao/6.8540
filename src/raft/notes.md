@@ -141,7 +141,7 @@ config.go:601: one(9713) failed to reach agreement
 - 修改RV RPC中的逻辑
   - 所有的term和index都要额外考虑当前rf是否有快照，如果日志为空但是有快照，则term和index以快照中的为准
 - 修改AE RPC中的resp handler
-  - leader在匹配日志过程中，如果对方匹配的index小于leader的快照，就给对方installSnapshot
+  - leader在匹配日志过程中，如果对方匹配的index小于leader的快照，就给对方installSnapshot (x，改为冷处理)
   - 假设：日志不匹配且落后太多是触发installSnapshot RPC的唯一途径
   - 假设：leader不会像需要发送快照的follower那样，落后太多。【证明】：leader包含最新的commit，需要发送快照的follower没有包含最新的commit
   - 假设：commitIndex不会受快照影响。【证明】：follower只有在日志匹配的情况下才会更新commitIndex，如果快照落后太多，就不会匹配到commitIndex处的日志
@@ -151,5 +151,13 @@ config.go:601: one(9713) failed to reach agreement
   - req handler
   - resp handler
   - snapshot入口函数（即被client调用的）
-- 关于并发和陈旧RPC的思考
-  - TODO
+- tools
+  - 使得日志打印函数具备打印真实Index的能力
+- 思考：陈旧RPC的处理增加快照情况
+  - AE RPC req handler处理，leader发送到当前rf过程中，rf发生了快照
+    - TODO
+  - AE RPC resp handler处理，rf回复leader过程中，leader发生了快照
+    - 冷处理，leader在周期性leaderTick的时候会发送installSnapshot RPC
+- 思考：启动server之后是否需要根据日志更新commitIndex和lastApplied
+  - 暂时不更新，让leader进行日志匹配之后传commitIndex过来就好
+- 思考：关于并发

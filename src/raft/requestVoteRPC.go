@@ -56,11 +56,7 @@ func (rf *Raft) RequestVoteRequestHandler(args *RequestVoteArgs, reply *RequestV
 	}
 
 	// 2.2 election restriction
-	lastLogIndex := len(rf.log) - 1
-	lastLogTerm := 0
-	if lastLogIndex != -1 {
-		lastLogTerm = rf.log[lastLogIndex].Term
-	}
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexAndTerm()
 	if lastLogTerm > args.LastLogTerm || (lastLogTerm == args.LastLogTerm && lastLogIndex > args.LastLogIndex) {
 		rf.PrintLog(fmt.Sprintf("RV RPC Resp ------> [Candidate %d] REJECT due to election restriction. [Term %d], [VotedFor: %d], [lastLogTerm %d], [lastLogIndex %d], [Candidate Term %d] [Candidate lastLogTerm %d], [Candidate lastLogIndex %d]", args.CandidateId, rf.currentTerm, rf.votedFor, lastLogTerm, lastLogIndex, args.Term, args.LastLogTerm, args.LastLogIndex), "default")
 		reply.Term = rf.currentTerm

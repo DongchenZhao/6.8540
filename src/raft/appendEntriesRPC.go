@@ -71,6 +71,7 @@ func (rf *Raft) AppendEntriesResponseHandler(args *AppendEntriesArgs, reply *App
 		return
 	}
 
+	// TODO 执行到此处，发现leader因为快照过快而无法匹配日志，比如可能因为在请求-回复过程中由于网络延迟太久，leader发生快照
 	// leader 处理日志agreement
 	rf.leaderHandleLog(args, reply)
 }
@@ -88,9 +89,12 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 	for i := 0; i < len(rf.log); i++ {
 		log[i].Term = rf.log[i].Term
 		log[i].Command = rf.log[i].Command
+		log[i].Index = rf.log[i].Index
 	}
 	nextIndex := make([]int, len(rf.nextIndex))
 	copy(nextIndex, rf.nextIndex)
+	snapShotIndex := rf.snapshotIndex
+	snapShotTerm := rf.snapshotTerm
 	rf.mu.RUnlock()
 
 	for i := 0; i < len(rf.peers); i++ {
@@ -104,15 +108,49 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 			}
 
 			// 获取要发给每个Server的prevLogTerm, prevLogIndex和Entries[]
+			//prevLogIndex := nextIndex[curI] - 1
+			//prevLogTerm := 0
+			//if prevLogIndex != -1 {
+			//	prevLogTerm = log[prevLogIndex].Term
+			//}
+			//entries := make([]LogEntry, len(log)-(prevLogIndex+1))
+			//for j := 0; j < len(log)-(prevLogIndex+1); j++ {
+			//	entries[j].Term = log[j+prevLogIndex+1].Term
+			//	entries[j].Command = log[j+prevLogIndex+1].Command
+			//}
+
+			// 获取要发给每个Server的prevLogTerm, prevLogIndex和Entries[]
 			prevLogIndex := nextIndex[curI] - 1
 			prevLogTerm := 0
-			if prevLogIndex != -1 {
-				prevLogTerm = log[prevLogIndex].Term
-			}
-			entries := make([]LogEntry, len(log)-(prevLogIndex+1))
-			for j := 0; j < len(log)-(prevLogIndex+1); j++ {
-				entries[j].Term = log[j+prevLogIndex+1].Term
-				entries[j].Command = log[j+prevLogIndex+1].Command
+			var entries []LogEntry
+
+			if prevLogIndex < snapShotIndex { // leader因为快照，日志长度不够，转而发送install snapshot
+				// TODO 发送installSnapshot RPC
+				return
+			} else if prevLogIndex == snapShotIndex { // leader发送的entries刚好从leader当前log开始，把leader的log全部发过去
+				prevLogTerm = snapShotTerm
+				entries = make([]LogEntry, len(log))
+				for j := 0; j < len(log); j++ {
+					entries[j] = LogEntry{Term: log[j].Term, Command: log[j].Command, Index: log[j].Index}
+				}
+			} else { // 遍历日志串，查找prevLogIndex对应位置
+				actualIndex := 0
+				found := false
+				for ; actualIndex < len(log); actualIndex++ {
+					if log[actualIndex].Index == prevLogIndex {
+						found = true
+						break
+					}
+				}
+				if !found {
+					panic("should found prevLogIndex")
+				}
+				actualIndex += 1
+				prevLogTerm = log[actualIndex-1].Term
+				entries = make([]LogEntry, len(log)-actualIndex)
+				for j := 0; j < len(log)-actualIndex; j++ {
+					entries[j] = LogEntry{Term: log[actualIndex+j].Term, Command: log[actualIndex+j].Command, Index: log[actualIndex+j].Index}
+				}
 			}
 
 			appendEntriesArgs := AppendEntriesArgs{currentTerm, rf.me, prevLogIndex, prevLogTerm, entries, leaderCommit}

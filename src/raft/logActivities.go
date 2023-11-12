@@ -3,34 +3,50 @@ package raft
 import (
 	"fmt"
 	"sort"
+	"strconv"
 )
 
 // locked，此方法执行前已获得锁，执行后caller会释放锁
 func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 
+	prevLogIndex, _ := rf.getLastLogIndexAndTerm()
+
 	// 1. 日志长度不够
-	if len(rf.log)-1 < args.PrevLogIndex {
-		reply.XTerm, reply.XIndex, reply.XLen = -1, len(rf.log), len(rf.log)
+	if prevLogIndex < args.PrevLogIndex {
+		reply.XTerm, reply.XIndex, reply.XLen = -1, prevLogIndex+1, len(rf.log) // 此处只有XIndex有用
 		reply.Success = false
 		rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre FAILED,, EMPTY ENTRY at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
 		rf.PrintServerState("purple")
 		return
 	}
 
+	actualIndex := rf.findIndex(args.PrevLogIndex) // 排除日志长度不够，除非follower快照，否则一定找得到
+
+	// TODO follower过快拍摄快照是否会导致follower日志长度不够，即leader会再次匹配已commit的日志吗 -> 会？
+	if actualIndex == -1 && args.PrevLogIndex != -1 { // follower已压缩，需要思考的是如何告诉leader匹配情况，考虑告诉leader从当前rf的第一个log的index开始匹配
+		// 感觉可以直接返回第一个log的index，然后leader会按照冲突index匹配
+		// fixed 2d: 此处需要考虑初始情况
+	}
+
 	// 2. 日志冲突，截断，XIndex为冲突日志串的第一个entry的index，XTerm即为冲突的Term
 	// PrevLogIndex为-1的时候一定匹配成功
-	if args.PrevLogIndex != -1 && rf.log[args.PrevLogIndex].Term != args.PrevLogTerm {
-		tarTerm := rf.log[args.PrevLogIndex].Term
+	if args.PrevLogIndex != -1 && rf.log[actualIndex].Term != args.PrevLogTerm {
+		rf.PrintLog("conflict at prevLogIndex, cur rf term: "+strconv.Itoa(rf.log[actualIndex].Term), "red")
+		tarTerm := rf.log[actualIndex].Term
 		startIndex := 0
-		for ; startIndex <= args.PrevLogIndex; startIndex++ {
+		for ; startIndex <= actualIndex; startIndex++ {
 			if rf.log[startIndex].Term == tarTerm {
 				break
 			}
 		}
 
 		// 截断日志
-		rf.log = rf.log[:args.PrevLogIndex]
-		reply.XTerm, reply.XIndex, reply.XLen = tarTerm, startIndex, len(rf.log)
+		// fixed 2D: 如果冲突日志位置仅为单独的日志串（例如 1 1 1 2最后一个2冲突），则截断后再返回冲突位置的第一个entry的index实际上是会触发panic的，因为这个entry已经被截断了，rf.log[startIndex].Index会造成溢出
+		// 此处修改为在截断之前保存XIndex
+		targetIndex := rf.log[startIndex].Index
+		rf.log = rf.log[:actualIndex]
+
+		reply.XTerm, reply.XIndex, reply.XLen = tarTerm, targetIndex, len(rf.log)
 		reply.Success = false
 		rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre FAILED, CONFLICT at PrevLogIndex, ", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
 		rf.PrintServerState("purple")
@@ -38,7 +54,7 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 	}
 
 	// 3. 匹配成功
-	if args.PrevLogIndex == -1 || rf.log[args.PrevLogIndex].Term == args.PrevLogTerm {
+	if args.PrevLogIndex == -1 || rf.log[actualIndex].Term == args.PrevLogTerm {
 		// append arg中所有尚未append的日志(从PrevLogIndex开始，长度比较)
 		// 同一个Term下的AE RPC，不可能有先后2个RPC在同一prevLogIndex位置加了长度相同、内容不同的entries
 
@@ -72,12 +88,12 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 		// TestBackup2B
 
 		// 在rf.log[prevLogIndex + 1]直到rf日志末尾，如果出现和entries不匹配的情况，截断
-		if (len(rf.log)-1)-args.PrevLogIndex <= len(args.Entries) {
-			rf.log = append(rf.log[:args.PrevLogIndex+1], args.Entries...)
+		if (len(rf.log)-1)-actualIndex <= len(args.Entries) { // leader日志更长，则leader日志一定更新，如果leader日志旧，在匹配成功的前提下就意味着rf已经append更新leader的日志了，如果这样，rf的日志会比prevIndex + len(entries)更长
+			rf.log = append(rf.log[:actualIndex+1], args.Entries...)
 		} else { // rf日志比prevLogIndex + 1 + len(entries)更长，但并不意味着rf的日志更新
-			for i := args.PrevLogIndex + 1; i < args.PrevLogIndex+1+len(args.Entries); i++ {
-				if rf.log[i].Term != args.Entries[i-args.PrevLogIndex-1].Term {
-					remainingEntries := args.Entries[i-args.PrevLogIndex-1:]
+			for i := actualIndex + 1; i < actualIndex+1+len(args.Entries); i++ {
+				if rf.log[i].Term != args.Entries[i-actualIndex-1].Term {
+					remainingEntries := args.Entries[i-actualIndex-1:]
 					rf.log = append(rf.log[:i], remainingEntries...)
 				}
 			}
@@ -108,20 +124,20 @@ func (rf *Raft) leaderHandleLog(args *AppendEntriesArgs, reply *AppendEntriesRep
 	}
 	// 2. 日志冲突，根据leader是否持有XTerm分情况讨论
 	if !reply.Success {
-		indexOfLastEntryWithXTerm := len(rf.log) - 1
-		for ; indexOfLastEntryWithXTerm != -1; indexOfLastEntryWithXTerm-- {
-			if rf.log[indexOfLastEntryWithXTerm].Term == reply.XTerm {
+		actualIndexOfLastEntryWithXTerm := len(rf.log) - 1
+		for ; actualIndexOfLastEntryWithXTerm != -1; actualIndexOfLastEntryWithXTerm-- {
+			if rf.log[actualIndexOfLastEntryWithXTerm].Term == reply.XTerm {
 				break
 			}
 		}
 		// 2.1 leader持有XTerm，将目标rf的nextIndex设置为XTerm串最后一个entry的index+1
-		if indexOfLastEntryWithXTerm != -1 {
-			rf.nextIndex[reply.ServerId] = indexOfLastEntryWithXTerm + 1
+		if actualIndexOfLastEntryWithXTerm != -1 {
+			rf.nextIndex[reply.ServerId] = rf.log[actualIndexOfLastEntryWithXTerm].Index + 1
 			rf.PrintLog(fmt.Sprintf("Handle AE RPC resp from [Server %d], log compare FAILED, log mismatch", reply.ServerId), "purple")
 			return
 		}
 		// 2.2 leader未持有XTerm，将目标rf的nextIndex设置为XIndex
-		if indexOfLastEntryWithXTerm == -1 {
+		if actualIndexOfLastEntryWithXTerm == -1 {
 			rf.nextIndex[reply.ServerId] = reply.XIndex
 			rf.PrintLog(fmt.Sprintf("Handle AE RPC resp from [Server %d], log compare FAILED, log mismatch", reply.ServerId), "purple")
 			return
@@ -147,7 +163,7 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
 
-	if len(rf.log) == 0 {
+	if len(rf.log) == 0 && rf.snapshotIndex == -1 {
 		return
 	}
 
@@ -181,14 +197,17 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 
 // locked
 func (rf *Raft) followerUpdateCommitIndex(leaderCommit int) {
-	if rf.commitIndex >= leaderCommit {
+	if rf.commitIndex >= leaderCommit { // 如果当前rf commitIndex更大，无视(可能是leader陈旧rpc)
 		return
 	}
 
+	// 否则，取当前最大logIndex和leaderCommit中较小的那个当做自己的commitIndex
 	prevCommitIndex := rf.commitIndex
 	minCommitIndex := leaderCommit
-	if len(rf.log)-1 < leaderCommit {
-		minCommitIndex = len(rf.log) - 1
+	lastLogIndex, _ := rf.getLastLogIndexAndTerm()
+
+	if lastLogIndex < leaderCommit {
+		minCommitIndex = lastLogIndex
 	}
 	rf.commitIndex = minCommitIndex
 	rf.sendCommittedLogoChannel(prevCommitIndex, rf.commitIndex)
@@ -197,7 +216,27 @@ func (rf *Raft) followerUpdateCommitIndex(leaderCommit int) {
 // locked
 func (rf *Raft) sendCommittedLogoChannel(prevCommitIndex int, curCommitIndex int) {
 	applyMsgLs := make([]ApplyMsg, 0)
-	for i := prevCommitIndex + 1; i <= curCommitIndex; i++ {
+	// 这里的待提交日志尚未告诉client，因此不存在被快照的可能
+	startIndex := 0
+
+	found := false
+	for ; startIndex < len(rf.log); startIndex++ {
+		if rf.log[startIndex].Index == prevCommitIndex {
+			found = true
+			break
+		}
+	}
+
+	if prevCommitIndex == -1 {
+		startIndex = -1
+		found = true
+	}
+
+	if !found {
+		panic("should found startIndex")
+	}
+
+	for i := startIndex + 1; i <= startIndex+(curCommitIndex-prevCommitIndex); i++ {
 		applyMsgLs = append(applyMsgLs, ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: i + 1})
 	}
 	go rf.putApplyChBuffer(applyMsgLs)

@@ -96,7 +96,7 @@ type Raft struct {
 
 	// ------ snapshot, persistent state on all servers ------
 	snapshot      []byte
-	snapshotIndex int
+	snapshotIndex int // -1表示没有快照
 	snapshotTerm  int
 }
 
@@ -132,6 +132,9 @@ func (rf *Raft) persist() {
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
+	e.Encode(rf.snapshot)
+	e.Encode(rf.snapshotIndex)
+	e.Encode(rf.snapshotTerm)
 	raftState := w.Bytes()
 	rf.persister.Save(raftState, nil)
 }
@@ -148,7 +151,12 @@ func (rf *Raft) readPersist(data []byte) {
 	var currentTerm int
 	var votedFor int
 	var log []LogEntry
-	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&log) != nil {
+	// snapshot
+	var snapshot []byte
+	var snapshotTerm int
+	var snapshotIndex int
+
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&log) != nil || d.Decode(&snapshot) != nil || d.Decode(&snapshotTerm) != nil || d.Decode(&snapshotIndex) != nil {
 		// error...
 		rf.PrintLog("DECODE ERROR", "red")
 	} else {
@@ -165,7 +173,7 @@ func (rf *Raft) readPersist(data []byte) {
 func (rf *Raft) Snapshot(index int, snapshot []byte) {
 	// Your code here (2D).
 	targetIndex := index - 1
-	rf.installSnapShot(targetIndex, snapshot)
+	rf.installCurRfSnapShot(targetIndex, snapshot)
 }
 
 // the service using Raft (e.g. a k/v server) wants to start
@@ -185,10 +193,16 @@ func (rf *Raft) Start(command interface{}) (int, int, bool) {
 
 	isLeader := rf.role == 2
 	if isLeader {
-		// TODO 修改logIndex计算方式
-		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command})
+
+		var index int         // 下一条日志的index
+		if len(rf.log) != 0 { // 如果日志不为空，取最后一条日志的index + 1
+			index = rf.log[len(rf.log)-1].Index + 1
+		} else { // 如果日志为空，可能全空或已快照，如果没有快照，index为0(-1 + 1)，否则index仍未下一条日志的index
+			index = rf.snapshotIndex + 1
+		}
+
+		rf.log = append(rf.log, LogEntry{Term: rf.currentTerm, Command: command, Index: index})
 		term := rf.currentTerm
-		index := len(rf.log) - 1
 
 		rf.matchIndex[rf.me] = index
 		rf.nextIndex[rf.me] = index + 1
@@ -248,7 +262,7 @@ func (rf *Raft) getApplyChBuffer() {
 			rf.applyChCond.Wait()
 		}
 		for i := 0; i < len(rf.applyChBuffer); i++ {
-			rf.PrintLog(fmt.Sprintf("Send newly commited log, [Index: %d]", i), "yellow")
+			rf.PrintLog(fmt.Sprintf("Send newly commited log, [CommandIndex: %d]", rf.applyChBuffer[i].CommandIndex), "skyblue")
 			rf.applyCh <- rf.applyChBuffer[i]
 		}
 		rf.applyChBuffer = make([]ApplyMsg, 0)
@@ -288,6 +302,10 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.role = 0
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
 	rf.electionTimeout = 200 + rand.Intn(100)
+	// snapshot相关初始化
+	rf.snapshot = nil
+	rf.snapshotTerm = 0
+	rf.snapshotIndex = -1
 
 	// 读取持久化数据
 	rf.readPersist(persister.ReadRaftState())

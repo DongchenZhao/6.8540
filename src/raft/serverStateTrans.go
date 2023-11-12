@@ -42,11 +42,7 @@ func (rf *Raft) toCandidate() {
 	// 4.发送投票请求
 	// 发送请求之前获取当前状态的副本
 	currentTerm := rf.currentTerm
-	lastLogIndex := len(rf.log) - 1
-	lastLogTerm := 0 // 日志为空，最后一个term为0
-	if lastLogIndex != -1 {
-		lastLogTerm = rf.log[lastLogIndex].Term
-	}
+	lastLogIndex, lastLogTerm := rf.getLastLogIndexAndTerm()
 	rf.mu.Unlock()
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
@@ -78,12 +74,12 @@ func (rf *Raft) toLeader() {
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := 0; i < len(rf.peers); i++ {
-		rf.nextIndex[i] = len(rf.log)
+		rf.nextIndex[i], _ = rf.getLastLogIndexAndTerm()
+		rf.nextIndex[i] += 1
 		rf.matchIndex[i] = -1 // 表示当前leader认为其他server的log为空，(选择初始化为https://thesquareplanet.com/blog/students-guide-to-raft/中的-1而不是论文中的0,貌似因为论文中log index从1开始)
 	}
 	// leader更新自己的nextIndex和matchIndex
-	rf.nextIndex[rf.me] = len(rf.log)
-	rf.matchIndex[rf.me] = len(rf.log) - 1
+	rf.matchIndex[rf.me], _ = rf.getLastLogIndexAndTerm()
 
 	rf.votedFor = -1 // 持久化之后至少不会产生歧义，毕竟是上一个term投的票了
 	rf.persist()
