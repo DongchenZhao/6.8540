@@ -75,6 +75,7 @@ go test -race -run 2C  40.06s user 1.81s system 31% cpu 2:11.29 total
   - 防止选举压制，成为candidate之后重置自己的election timeout   【done】
     - 貌似不是选举压制问题，而是ticker中continue写成return了
     - 草
+  - 每次收到rpc要更新leaderId
 
 --- FAIL: TestFigure8Unreliable2C (47.44s)
 config.go:601: one(9713) failed to reach agreement
@@ -148,8 +149,17 @@ config.go:601: one(9713) failed to reach agreement
 - IS RPC
   - req
     - 触发的条件是日志不匹配，且leader已经没有不匹配位置的日志信息了
+    - 在AE RPC req中，如果leader发现nextIndex[serverId]已经被自己snapshot覆盖，就在单独goroutine中发送installSnapshot RPC
   - req handler
+    - 自己比leader大，拒绝
+    - 自己已有更新snapshot，拒绝
+    - 自己比leader小，转为follower更新term
+    - 自己log过于落后：完全接受接受leader的snapshot，把自己log置为空
+    - 自己log部分落后：完全接受接受leader的snapshot，截断你自己log
   - resp handler
+    - 自己比rf小，转为follower
+    - 如果matchIndex大于等于args.lastIncludedIndex，视为陈旧回复
+    - 更新nextIndex和matchIndex，注意断言向前更新
   - snapshot入口函数（即被client调用的）
 - tools
   - 使得日志打印函数具备打印真实Index的能力
@@ -158,6 +168,14 @@ config.go:601: one(9713) failed to reach agreement
     - TODO
   - AE RPC resp handler处理，rf回复leader过程中，leader发生了快照
     - 冷处理，leader在周期性leaderTick的时候会发送installSnapshot RPC
+    - 而且即使发生【日志不匹配但leader具有XTerm串但因为快照这个串丢失】这种情况，也会被归到【leader未持有XTerm】，nextIndex会被设置为XIndex
 - 思考：启动server之后是否需要根据日志更新commitIndex和lastApplied
   - 暂时不更新，让leader进行日志匹配之后传commitIndex过来就好
 - 思考：关于并发
+- leader避免自己没有snapshot的情况下把空的snapshot发给其他rf
+
+TODO
+- snapshot更新心跳
+- snapshot之后重新提交snapshot之外的日志
+- snapshot之后到底需不需要重新commit [snapShotIndex, commitIndex]区间的日志   要 done
+- 某些条件下，leader貌似会以较小的snapshotIndex发送实际上含有较大的snapshotIndex的snapshot

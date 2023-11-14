@@ -132,11 +132,10 @@ func (rf *Raft) persist() {
 	e.Encode(rf.currentTerm)
 	e.Encode(rf.votedFor)
 	e.Encode(rf.log)
-	e.Encode(rf.snapshot)
 	e.Encode(rf.snapshotIndex)
 	e.Encode(rf.snapshotTerm)
 	raftState := w.Bytes()
-	rf.persister.Save(raftState, nil)
+	rf.persister.Save(raftState, rf.snapshot)
 }
 
 // restore previously persisted state.
@@ -152,18 +151,24 @@ func (rf *Raft) readPersist(data []byte) {
 	var votedFor int
 	var log []LogEntry
 	// snapshot
-	var snapshot []byte
-	var snapshotTerm int
 	var snapshotIndex int
+	var snapshotTerm int
 
-	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&log) != nil || d.Decode(&snapshot) != nil || d.Decode(&snapshotTerm) != nil || d.Decode(&snapshotIndex) != nil {
+	if d.Decode(&currentTerm) != nil || d.Decode(&votedFor) != nil || d.Decode(&log) != nil || d.Decode(&snapshotIndex) != nil || d.Decode(&snapshotTerm) != nil {
 		// error...
 		rf.PrintLog("DECODE ERROR", "red")
 	} else {
 		rf.currentTerm = currentTerm
 		rf.votedFor = votedFor
 		rf.log = log
+
+		rf.snapshotIndex = snapshotIndex
+		rf.snapshotTerm = snapshotTerm
 	}
+}
+
+func (rf *Raft) readPersistSnapshot(data []byte) {
+	rf.snapshot = data
 }
 
 // the service says it has created a snapshot that has
@@ -262,7 +267,7 @@ func (rf *Raft) getApplyChBuffer() {
 			rf.applyChCond.Wait()
 		}
 		for i := 0; i < len(rf.applyChBuffer); i++ {
-			rf.PrintLog(fmt.Sprintf("Send newly commited log, [CommandIndex: %d]", rf.applyChBuffer[i].CommandIndex), "skyblue")
+			rf.PrintLog(fmt.Sprintf("Send newly commited log, [CommandIndex: %d]", rf.applyChBuffer[i].CommandIndex-1), "skyblue")
 			rf.applyCh <- rf.applyChBuffer[i]
 		}
 		rf.applyChBuffer = make([]ApplyMsg, 0)
@@ -309,6 +314,16 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// 读取持久化数据
 	rf.readPersist(persister.ReadRaftState())
+	rf.readPersistSnapshot(persister.ReadSnapshot())
+
+	// 根据快照，更新自己的commitIndex
+	rf.commitIndex = rf.snapshotIndex
+	rf.lastApplied = rf.commitIndex
+
+	// 重启之后重新commit snapshot
+	if rf.snapshotIndex != -1 {
+		rf.putApplyChBuffer([]ApplyMsg{ApplyMsg{CommandValid: false, Command: nil, CommandIndex: -1, SnapshotValid: true, SnapshotIndex: rf.snapshotIndex + 1, SnapshotTerm: rf.snapshotTerm, Snapshot: rf.snapshot}})
+	}
 
 	rf.PrintLog(fmt.Sprintf("RESTARTED"), "red")
 	rf.PrintServerState("red")

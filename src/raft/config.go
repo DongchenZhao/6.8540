@@ -195,6 +195,7 @@ func (cfg *config) ingestSnap(i int, snapshot []byte, index int) string {
 		return "snapshot Decode() error"
 	}
 	if index != -1 && index != lastIncludedIndex {
+		printSplit(fmt.Sprintf("server %v, index %v, lastIncludedIndex %v", i, index, lastIncludedIndex))
 		err := fmt.Sprintf("server %v snapshot doesn't match m.SnapshotIndex", i)
 		return err
 	}
@@ -218,6 +219,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 	}
 
 	for m := range applyCh {
+		log.Println(fmt.Sprintf("[Server %d] --------------- message content: [CommandVaild %v] [CommandIndex %v] [SnapshotValid %v] [SnapshotIndex %v] [SnapshotTerm %v]", i, m.CommandValid, m.CommandIndex, m.SnapshotValid, m.SnapshotIndex, m.SnapshotTerm))
 		err_msg := ""
 		if m.SnapshotValid {
 			cfg.mu.Lock()
@@ -255,6 +257,7 @@ func (cfg *config) applierSnap(i int, applyCh chan ApplyMsg) {
 			}
 		} else {
 			// Ignore other types of ApplyMsg.
+			panic("unexpected ApplyMsg")
 		}
 		if err_msg != "" {
 			log.Fatalf("apply error: %v", err_msg)

@@ -62,16 +62,18 @@ func (rf *Raft) PrintServerState(color string) {
 
 	logStr := "[log [" + getLogStr(rf.log) + "]]"
 
+	snapshotStatusStr := " [SnapshotIndex " + strconv.Itoa(rf.snapshotIndex) + "] [SnapshotTerm " + strconv.Itoa(rf.snapshotTerm) + "]"
+
 	stateStr := "            [STATE]"
 
 	switch rf.role {
 	case 0:
-		stateStr += "[Follower " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
+		stateStr += "[Follower " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + snapshotStatusStr + logStr
 		// stateStr += fmt.Sprintf("[Follower %d]", rf.me)
 	case 1:
-		stateStr += "[Candidate " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + logStr
+		stateStr += "[Candidate " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + snapshotStatusStr + logStr
 	case 2:
-		stateStr += "[Leader " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + nextIndexStr + matchIndexStr + logStr
+		stateStr += "[Leader " + strconv.Itoa(rf.me) + "]" + " [Term " + strconv.Itoa(rf.currentTerm) + "]" + " [CommitIndex " + strconv.Itoa(rf.commitIndex) + "]" + snapshotStatusStr + nextIndexStr + matchIndexStr + logStr
 	}
 
 	rf.PrintLog(stateStr, color)
@@ -85,9 +87,10 @@ func (rf *Raft) PrintRfLog() {
 
 // 返回日志片段的字符串
 func getLogStr(entries []LogEntry) string {
-	logStr := "["
+	logStr := "{"
 	for i := 0; i < len(entries); i++ {
 		logStr += strconv.Itoa(entries[i].Term)
+		logStr += "[" + strconv.Itoa(entries[i].Index) + "]"
 		//if entries[i].Command == nil {
 		//	logStr += "[nil]"
 		//	continue
@@ -110,7 +113,7 @@ func getLogStr(entries []LogEntry) string {
 			logStr += " "
 		}
 	}
-	logStr += "]"
+	logStr += "}"
 	return logStr
 }
 

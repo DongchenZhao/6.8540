@@ -5,3 +5,4 @@
 #time go test -race -run 2C
 
 #time go test -race -run TestBasicAgree2B
+time go test -race -run 2D

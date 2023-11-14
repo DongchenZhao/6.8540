@@ -22,10 +22,44 @@ func (rf *Raft) followerHandleLog(args *AppendEntriesArgs, reply *AppendEntriesR
 
 	actualIndex := rf.findIndex(args.PrevLogIndex) // 排除日志长度不够，除非follower快照，否则一定找得到
 
-	// TODO follower过快拍摄快照是否会导致follower日志长度不够，即leader会再次匹配已commit的日志吗 -> 会？
-	if actualIndex == -1 && args.PrevLogIndex != -1 { // follower已压缩，需要思考的是如何告诉leader匹配情况，考虑告诉leader从当前rf的第一个log的index开始匹配
-		// 感觉可以直接返回第一个log的index，然后leader会按照冲突index匹配
-		// fixed 2d: 此处需要考虑初始情况
+	// 2d: follower过快拍摄快照是否会导致follower日志长度不够，即leader再次匹配已commit的日志
+	if actualIndex == -1 && args.PrevLogIndex != -1 { // fixed 2d: 此处需要考虑初始情况
+		// follower已压缩，相当于直接匹配成功，因为以任何已压缩的日志都是commit的
+		// 1. 找出entries中未commit的部分
+		entriesActualStartIndex := 0
+		foundUnCommittedLog := false
+		for ; entriesActualStartIndex < len(args.Entries); entriesActualStartIndex++ {
+			if args.Entries[entriesActualStartIndex].Index == rf.snapshotIndex+1 {
+				foundUnCommittedLog = true
+				break
+			}
+		}
+		// 2. leader那边来的entries中全部在快照中
+		if !foundUnCommittedLog {
+			reply.XTerm, reply.XIndex, reply.XLen = -1, -1, len(rf.log)
+			reply.Success = true
+			rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre SUCCESS, ALL IN SNAPSHOT", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
+			rf.PrintServerState("purple")
+			return
+		}
+		// 3. leader那边来的entries部分在快照中，看情况append这些newEntries
+		if foundUnCommittedLog {
+			newEntries := args.Entries[entriesActualStartIndex:]
+			if len(rf.log) <= len(newEntries) {
+				rf.log = newEntries
+			} else {
+				for i := 0; i < len(newEntries); i++ {
+					if rf.log[i].Term != newEntries[i].Term {
+						rf.log = newEntries
+					}
+				}
+			}
+			reply.XTerm, reply.XIndex, reply.XLen = -1, -1, len(rf.log)
+			reply.Success = true
+			rf.PrintLog(fmt.Sprintf("AE RPC Resp -----> [Leader %d], log comapre SUCCESS, PATRIALLY IN SNAPSHOT", args.LeaderId)+getAppendEntriesRPCStr(args, reply), "purple")
+			rf.PrintServerState("purple")
+			return
+		}
 	}
 
 	// 2. 日志冲突，截断，XIndex为冲突日志串的第一个entry的index，XTerm即为冲突的Term
@@ -182,8 +216,11 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 	}
 
 	// leader更新commitIndex的条件
-	cond1 := majorityIndex > rf.commitIndex               // 条件1: 大多数server的日志都和leader同步了
-	cond2 := rf.log[majorityIndex].Term == rf.currentTerm // 条件2: 大多数server的日志都是当前term的
+	cond1 := majorityIndex > rf.commitIndex // 条件1: 大多数server的日志都和leader同步了
+	if !cond1 {
+		return
+	}
+	cond2 := rf.log[rf.findIndex(majorityIndex)].Term == rf.currentTerm // 条件2: 大多数server的日志都是当前term的
 	if cond1 && cond2 {
 		prevCommitIndex := rf.commitIndex
 		rf.commitIndex = majorityIndex
@@ -191,7 +228,7 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 		rf.PrintLog(fmt.Sprintf("Leader update commitIndex, [PrevCommitIndex %d] [CurCommitIndex %d]", prevCommitIndex, rf.commitIndex), "yellow")
 		rf.PrintServerState("yellow")
 		// 向chan发送消息，传入prevCommitIndex和curCommitIndex
-		rf.sendCommittedLogoChannel(prevCommitIndex, rf.commitIndex)
+		rf.sendCommittedLogChannel(prevCommitIndex, rf.commitIndex)
 	}
 }
 
@@ -210,26 +247,28 @@ func (rf *Raft) followerUpdateCommitIndex(leaderCommit int) {
 		minCommitIndex = lastLogIndex
 	}
 	rf.commitIndex = minCommitIndex
-	rf.sendCommittedLogoChannel(prevCommitIndex, rf.commitIndex)
+	rf.lastApplied = rf.commitIndex
+	rf.PrintLog(fmt.Sprintf("Follower update commitIndex, [PrevCommitIndex %d] [CurCommitIndex %d]", prevCommitIndex, rf.commitIndex), "yellow")
+	rf.sendCommittedLogChannel(prevCommitIndex, rf.commitIndex)
 }
 
 // locked
-func (rf *Raft) sendCommittedLogoChannel(prevCommitIndex int, curCommitIndex int) {
+func (rf *Raft) sendCommittedLogChannel(prevCommitIndex int, curCommitIndex int) {
 	applyMsgLs := make([]ApplyMsg, 0)
 	// 这里的待提交日志尚未告诉client，因此不存在被快照的可能
 	startIndex := 0
 
 	found := false
-	for ; startIndex < len(rf.log); startIndex++ {
-		if rf.log[startIndex].Index == prevCommitIndex {
-			found = true
-			break
-		}
-	}
-
-	if prevCommitIndex == -1 {
+	if prevCommitIndex == -1 || prevCommitIndex == rf.snapshotIndex {
 		startIndex = -1
 		found = true
+	} else {
+		for ; startIndex < len(rf.log); startIndex++ {
+			if rf.log[startIndex].Index == prevCommitIndex {
+				found = true
+				break
+			}
+		}
 	}
 
 	if !found {
@@ -237,7 +276,7 @@ func (rf *Raft) sendCommittedLogoChannel(prevCommitIndex int, curCommitIndex int
 	}
 
 	for i := startIndex + 1; i <= startIndex+(curCommitIndex-prevCommitIndex); i++ {
-		applyMsgLs = append(applyMsgLs, ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: i + 1})
+		applyMsgLs = append(applyMsgLs, ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: rf.log[i].Index + 1})
 	}
 	go rf.putApplyChBuffer(applyMsgLs)
 }

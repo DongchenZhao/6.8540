@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 )
@@ -71,7 +72,9 @@ func (rf *Raft) AppendEntriesResponseHandler(args *AppendEntriesArgs, reply *App
 		return
 	}
 
-	// TODO 执行到此处，发现leader因为快照过快而无法匹配日志，比如可能因为在请求-回复过程中由于网络延迟太久，leader发生快照
+	// 2d: 执行到此处，发现leader因为快照过快而无法匹配日志，比如可能因为在请求-回复过程中由于网络延迟太久，leader发生快照
+	// 冷处理，会直接冲突
+
 	// leader 处理日志agreement
 	rf.leaderHandleLog(args, reply)
 }
@@ -95,14 +98,14 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 	copy(nextIndex, rf.nextIndex)
 	snapShotIndex := rf.snapshotIndex
 	snapShotTerm := rf.snapshotTerm
+	// fixed 2d：并发，不长记性
+	snapshot := make([]byte, len(rf.snapshot))
+	copy(snapshot, rf.snapshot)
 	rf.mu.RUnlock()
 
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
 		go func() {
-
-			// rf.lockTest += 1
-
 			if curI == rf.me {
 				return
 			}
@@ -125,7 +128,15 @@ func (rf *Raft) leaderSendAppendEntriesRPC() {
 			var entries []LogEntry
 
 			if prevLogIndex < snapShotIndex { // leader因为快照，日志长度不够，转而发送install snapshot
-				// TODO 发送installSnapshot RPC
+				// 发送installSnapshot RPC
+				installSnapshotArgs := InstallSnapshotArgs{currentTerm, rf.me, snapShotIndex, snapShotTerm, snapshot}
+				installSnapshotReply := InstallSnapshotReply{}
+				rf.PrintLog(fmt.Sprintf("IS RPC ---> [Server "+strconv.Itoa(curI)+"], [Leader term %d], [Leader Id %d], [LastIncludedIndex %d], [LastIncludedTerm %d]", installSnapshotArgs.Term, installSnapshotArgs.LeaderId, installSnapshotArgs.LastIncludedIndex, installSnapshotArgs.LastIncludedTerm), "blue")
+				ok := rf.sendInstallSnapshot(curI, &installSnapshotArgs, &installSnapshotReply)
+				if !ok {
+					// rf.PrintLog("IS RPC ---> [Server "+strconv.Itoa(curI)+"] Failed", "yellow")
+				}
+				rf.InstallSnapshotResponseHandler(&installSnapshotArgs, &installSnapshotReply)
 				return
 			} else if prevLogIndex == snapShotIndex { // leader发送的entries刚好从leader当前log开始，把leader的log全部发过去
 				prevLogTerm = snapShotTerm
