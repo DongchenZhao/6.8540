@@ -294,7 +294,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	rf.applyCh = applyCh
 	rf.applyChCond = *sync.NewCond(&rf.applyChMu)
-	rf.applyChBuffer = make([]ApplyMsg, 0)
+	rf.applyChBuffer = make([]ApplyMsg, 0) // 创建applyMsg空切片
 
 	// 初始化
 	rf.mu.Lock()
@@ -303,7 +303,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	rf.votedFor = -1
 	rf.log = make([]LogEntry, 0)
 	rf.commitIndex = -1
-	rf.lastApplied = -1
+	rf.lastApplied = -1 // 日志从0开始计数
 	rf.role = 0
 	rf.lastHeartbeatTime = time.Now().UnixMilli()
 	rf.electionTimeout = 200 + rand.Intn(100)
@@ -322,6 +322,7 @@ func Make(peers []*labrpc.ClientEnd, me int,
 
 	// 重启之后重新commit snapshot
 	if rf.snapshotIndex != -1 {
+		// 貌似之前的实现的index刚好和客户端期望的index相差1
 		rf.putApplyChBuffer([]ApplyMsg{ApplyMsg{CommandValid: false, Command: nil, CommandIndex: -1, SnapshotValid: true, SnapshotIndex: rf.snapshotIndex + 1, SnapshotTerm: rf.snapshotTerm, Snapshot: rf.snapshot}})
 	}
 

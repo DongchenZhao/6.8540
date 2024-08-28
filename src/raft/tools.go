@@ -7,7 +7,7 @@ import (
 )
 
 // locked
-// 查找Index为target的日志的下标
+// 查找logIndex为target的日志的下标
 func (rf *Raft) findIndex(target int) int {
 	for i := 0; i < len(rf.log); i++ {
 		if rf.log[i].Index == target {

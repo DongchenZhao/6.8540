@@ -220,7 +220,7 @@ func (rf *Raft) leaderUpdateCommitIndex() {
 	if !cond1 {
 		return
 	}
-	cond2 := rf.log[rf.findIndex(majorityIndex)].Term == rf.currentTerm // 条件2: 大多数server的日志都是当前term的
+	cond2 := rf.log[rf.findIndex(majorityIndex)].Term == rf.currentTerm // 条件2: 大多数server的日志都是当前term的，即：leader只能提交当前term的日志（figure 8）
 	if cond1 && cond2 {
 		prevCommitIndex := rf.commitIndex
 		rf.commitIndex = majorityIndex

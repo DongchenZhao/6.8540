@@ -8,6 +8,8 @@ import (
 
 // locked
 // 确保进入这个方法之前，获取了mu.lock
+// 因为go的mutex非可重入，当然也可以自己搓一个递归锁出来
+// 简单搜了一下，这就要扯到go语言设计哲学了（比如无法获取go routine id等等）
 func (rf *Raft) toFollower(term int) {
 	prevTerm := rf.currentTerm
 	prevRole := rf.role
@@ -71,10 +73,11 @@ func (rf *Raft) toLeader() {
 	rf.PrintLog(fmt.Sprintf("Role ["+roleStr+"] ---> [Leader], [Term: %d]", rf.currentTerm), "green")
 	rf.PrintServerState("green")
 	rf.role = 2
+	// 初始化nextIndex和matchIndex，之后要用这两个东西进行日志提交
 	rf.nextIndex = make([]int, len(rf.peers))
 	rf.matchIndex = make([]int, len(rf.peers))
 	for i := 0; i < len(rf.peers); i++ {
-		rf.nextIndex[i], _ = rf.getLastLogIndexAndTerm()
+		rf.nextIndex[i], _ = rf.getLastLogIndexAndTerm() // 循环中反复调用也是人才……
 		rf.nextIndex[i] += 1
 		rf.matchIndex[i] = -1 // 表示当前leader认为其他server的log为空，(选择初始化为https://thesquareplanet.com/blog/students-guide-to-raft/中的-1而不是论文中的0,貌似因为论文中log index从1开始)
 	}
@@ -82,6 +85,7 @@ func (rf *Raft) toLeader() {
 	rf.matchIndex[rf.me], _ = rf.getLastLogIndexAndTerm()
 
 	rf.votedFor = -1 // 持久化之后至少不会产生歧义，毕竟是上一个term投的票了
+	// 其实关于持久化有个问题，真实情况下如果持久化到一半断电了，貌似这个lab把持久化抽象成原子操作了
 	rf.persist()
 
 	rf.mu.Unlock()
