@@ -1,13 +1,20 @@
 package kvraft
 
-import "6.5840/labrpc"
+import (
+	"6.5840/labrpc"
+	"fmt"
+	"sync"
+)
 import "crypto/rand"
 import "math/big"
-
 
 type Clerk struct {
 	servers []*labrpc.ClientEnd
 	// You will have to modify this struct.
+	mu       sync.Mutex
+	id       int64
+	leaderId int
+	seq      int
 }
 
 func nrand() int64 {
@@ -17,10 +24,14 @@ func nrand() int64 {
 	return x
 }
 
+// MakeClerk 新建一个客户端
 func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 	ck := new(Clerk)
 	ck.servers = servers
-	// You'll have to add code here.
+	// 初始化客户端
+	ck.leaderId = 0
+	ck.id = nrand()
+	ck.seq = 0
 	return ck
 }
 
@@ -37,7 +48,29 @@ func MakeClerk(servers []*labrpc.ClientEnd) *Clerk {
 func (ck *Clerk) Get(key string) string {
 
 	// You will have to modify this function.
-	return ""
+	ck.seq++
+	args := GetArgs{Key: key, ClientId: ck.id, Seq: ck.seq}
+	serverId := ck.leaderId
+	for {
+		reply := GetReply{}
+		PrintLog(fmt.Sprintf("Get RPC ------> [Server %d], [Args %v]", serverId, args), "default", 1, false)
+		ok := ck.servers[serverId].Call("KVServer.Get", &args, &reply)
+		if ok {
+			if reply.Err == ErrNoKey {
+				ck.leaderId = serverId
+				return ""
+			} else if reply.Err == OK {
+				ck.leaderId = serverId
+				return reply.Value
+			} else if reply.Err == ErrWrongLeader {
+				serverId = (serverId + 1) % len(ck.servers)
+				continue
+			}
+		}
+		// 重试，网络不可能无限超时，超时部分应该是由rpc部分来实现的
+		PrintLog(fmt.Sprintf("Get RPC ------> [Server %d], [Args %v] failed, maybe server failed or packet lost", serverId, args), "yellow", 1, false)
+		serverId = (serverId + 1) % len(ck.servers)
+	}
 }
 
 // shared by Put and Append.
@@ -50,6 +83,26 @@ func (ck *Clerk) Get(key string) string {
 // arguments. and reply must be passed as a pointer.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
 	// You will have to modify this function.
+	ck.seq++
+	args := PutAppendArgs{Key: key, Value: value, Op: op, ClientId: ck.id, Seq: ck.seq}
+	serverId := ck.leaderId
+	for {
+		reply := PutAppendReply{}
+		PrintLog(fmt.Sprintf("PutAppend RPC ------> [Server %d], [Args %v]", serverId, args), "blue", 1, false)
+		ok := ck.servers[serverId].Call("KVServer.PutAppend", &args, &reply)
+		if ok {
+			if reply.Err == OK {
+				ck.leaderId = serverId
+				return
+			} else if reply.Err == ErrWrongLeader {
+				serverId = (serverId + 1) % len(ck.servers)
+				continue
+			}
+		}
+		// 重试，网络不可能无限超时，超时部分应该是由rpc部分来实现的
+		PrintLog(fmt.Sprintf("PutAppend RPC ------> [Server %d], [Args %v] failed, maybe server failed or packet lost", serverId, args), "yellow", 1, false)
+		serverId = (serverId + 1) % len(ck.servers)
+	}
 }
 
 func (ck *Clerk) Put(key string, value string) {

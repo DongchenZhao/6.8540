@@ -109,6 +109,7 @@ func (rf *Raft) InstallSnapshotRequestHandler(args *InstallSnapshotArgs, reply *
 func (rf *Raft) InstallSnapshotResponseHandler(args *InstallSnapshotArgs, reply *InstallSnapshotReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist() // pre-lab3增加持久化
 
 	// fix 2d: 过滤过期请求(arg中term和当前不符)
 	if rf.currentTerm != args.Term || rf.currentTerm > reply.Term {

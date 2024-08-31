@@ -124,6 +124,7 @@ func (rf *Raft) GetState() (int, bool) {
 // (or nil if there's not yet a snapshot).
 
 // locked
+// 凡是任意服务器等term、votedFor或者log更新了，都要调用persist()进行持久化
 func (rf *Raft) persist() {
 	// Your code here (2C).
 	// Example:
@@ -324,6 +325,14 @@ func Make(peers []*labrpc.ClientEnd, me int,
 	if rf.snapshotIndex != -1 {
 		// 貌似之前的实现的index刚好和客户端期望的index相差1
 		rf.putApplyChBuffer([]ApplyMsg{ApplyMsg{CommandValid: false, Command: nil, CommandIndex: -1, SnapshotValid: true, SnapshotIndex: rf.snapshotIndex + 1, SnapshotTerm: rf.snapshotTerm, Snapshot: rf.snapshot}})
+	}
+
+	// 重启之后重新commit log，因为Server侧需要重建数据库
+	for i := 0; i < len(rf.log); i++ {
+		if rf.log[i].Index > rf.commitIndex {
+			break
+		}
+		rf.putApplyChBuffer([]ApplyMsg{ApplyMsg{CommandValid: true, Command: rf.log[i].Command, CommandIndex: rf.log[i].Index + 1}})
 	}
 
 	rf.PrintLog(fmt.Sprintf("RESTARTED"), "red")

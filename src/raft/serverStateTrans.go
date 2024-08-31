@@ -45,6 +45,7 @@ func (rf *Raft) toCandidate() {
 	// 发送请求之前获取当前状态的副本
 	currentTerm := rf.currentTerm
 	lastLogIndex, lastLogTerm := rf.getLastLogIndexAndTerm()
+	rf.persist() // pre-lab3增加持久化
 	rf.mu.Unlock()
 	for i := 0; i < len(rf.peers); i++ {
 		curI := i
@@ -87,7 +88,6 @@ func (rf *Raft) toLeader() {
 	rf.votedFor = -1 // 持久化之后至少不会产生歧义，毕竟是上一个term投的票了
 	// 其实关于持久化有个问题，真实情况下如果持久化到一半断电了，貌似这个lab把持久化抽象成原子操作了
 	rf.persist()
-
 	rf.mu.Unlock()
 
 	go rf.leaderTicker()

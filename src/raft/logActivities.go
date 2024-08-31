@@ -196,6 +196,7 @@ func (rf *Raft) leaderHandleLog(args *AppendEntriesArgs, reply *AppendEntriesRep
 func (rf *Raft) leaderUpdateCommitIndex() {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist() // pre-lab3增加持久化
 
 	if len(rf.log) == 0 && rf.snapshotIndex == -1 {
 		return

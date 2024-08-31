@@ -58,6 +58,7 @@ func (rf *Raft) AppendEntriesRequestHandler(args *AppendEntriesArgs, reply *Appe
 func (rf *Raft) AppendEntriesResponseHandler(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	rf.mu.Lock()
 	defer rf.mu.Unlock()
+	defer rf.persist() // pre-lab3增加持久化
 	// 自己term更高，忽略过期AE RPC Resp
 	if rf.currentTerm > reply.Term || rf.currentTerm > args.Term {
 		return

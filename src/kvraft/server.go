@@ -18,11 +18,18 @@ func DPrintf(format string, a ...interface{}) (n int, err error) {
 	return
 }
 
-
+// 这个结构体要存在raft日志中
+// Each server should execute Op commands as Raft commits them, i.e. as they appear on the applyCh
 type Op struct {
 	// Your definitions here.
 	// Field names must start with capital letters,
 	// otherwise RPC will break.
+	SeqId    int
+	Key      string
+	Value    string
+	ClientId int64
+	Index    int // raft层传来的Index
+	OpType   string
 }
 
 type KVServer struct {
@@ -35,11 +42,20 @@ type KVServer struct {
 	maxraftstate int // snapshot if log grows this big
 
 	// Your definitions here.
-}
+	// ------------------------
+	replayedIndex int               // 重放的index，避免raft层反复提交相同index
+	seqMap        map[int64]int     //为了确保seq只执行一次	clientId / seqId
+	kvPersist     map[string]string // 存储持久化的KV键值对	K / V
 
+	// waitChMap map[int]chan Op   //传递由下层Raft服务的appCh传过来的command	index / chan(Op)
+
+	lastIncludeIndex int // raft对应的点
+
+}
 
 func (kv *KVServer) Get(args *GetArgs, reply *GetReply) {
 	// Your code here.
+
 }
 
 func (kv *KVServer) PutAppend(args *PutAppendArgs, reply *PutAppendReply) {
@@ -92,6 +108,16 @@ func StartKVServer(servers []*labrpc.ClientEnd, me int, persister *raft.Persiste
 	kv.rf = raft.Make(servers, me, persister, kv.applyCh)
 
 	// You may need initialization code here.
+	// TODO 重启后重放日志，恢复kvServer
 
 	return kv
+}
+
+// server根据applyCh中的消息更新自己的状态
+func (kv *KVServer) updateDB() {
+	//for !kv.killed() {
+	//	for msg := range kv.applyCh {
+	//
+	//	}
+	//}
 }
